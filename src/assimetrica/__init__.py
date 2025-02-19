@@ -53,7 +53,8 @@ class ParDeChaves:
     @property
     def cabecalho(self) -> str:
         return (f"Gerado para...........: {self.issued_to}\n"
-                f"Gerado em.............: {datetime.fromtimestamp(self.issued_at).strftime('%Y-%m-%d %H:%M:%S')}\n"
+                "Gerado em.............: "
+                f"{datetime.fromtimestamp(self.issued_at).strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f"Serial................: {self.serial}\n"
                 f"Tamanho da chave......: {self.bits} bits\n"
                 f"Inclui chave privada..: {self._has_private}\n"
