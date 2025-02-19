@@ -188,6 +188,9 @@ class ParDeChaves:
         if self.has_private or self.has_public:
             return False
 
+        if bits < 5:  # Muito curto não dá certo
+            return False
+
         self._size = bits
         if p is None or not sympy.is_prime(p):
             p = Ferramentas.gerar_primo(self.size)
@@ -328,5 +331,5 @@ class ParDeChaves:
 
 if __name__ == '__main__':
     chaves = ParDeChaves()
-    chaves.generate(bits=8, issued_to="daniel@lobato.org")
+    chaves.generate(bits=7, issued_to="daniel@lobato.org")
     print(chaves)

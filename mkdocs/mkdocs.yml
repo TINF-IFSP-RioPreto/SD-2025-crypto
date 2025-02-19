@@ -1,0 +1,12 @@
+site_name: Criptografia com chave assimétrica
+theme: readthedocs
+nav:
+  - O que é?: index.md
+  - A teoria:
+      - Geração de chaves: geracao_chaves.md
+      - Cifrar e decifrar: cifrar_e_decifrar.md
+  - Exemplo numérico: exemplo_numerico.md
+extra_javascript:
+  - https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.4/MathJax.js?config=TeX-AMS-MML_HTMLorMML
+markdown_extensions:
+  - mdx_math
