@@ -1,4 +1,4 @@
-### Como gerar as chaves?
+## Como gerar as chaves?
 
 O processo de geração das chaves começa com a escolha de
 dois números primos, arbitrariamente grandes, que chamaremos
@@ -20,7 +20,7 @@ Sabendo o valor de \(\varphi(n)\), precisamos escolher um expoente \(e\), tal
 que \(1 < e < \varphi(n)\) e e seja coprimo com \(\varphi(n)\).
 
 O último passo é escolher o expoente \(d\), que deve ser o inverso
-modular de \(e\) módulo \(\varphi(n)\); ou seja: \(e \times d \equiv 1 \mod(\varphi(n))\).
+modular de \(e\) módulo \(\varphi(n)\); ou seja: \(e \times d \equiv 1 \mod \varphi(n)\).
 
 Pronto!  Agora temos as chaves:
 
