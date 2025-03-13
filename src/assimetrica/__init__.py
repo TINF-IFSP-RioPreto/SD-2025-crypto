@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Generator, Optional, Self, Union, List
+from typing import Optional, Self, Union, List
 
 import sympy
 from sympy.codegen.ast import Raise
@@ -71,7 +71,7 @@ class Ferramentas:
             if e < phi_n and math.gcd(e, phi_n) == 1:
                 return e
             e += 2
-            while not sympy.is_prime(e):
+            while not sympy.isprime(e):
                 e += 2
         return None
 
@@ -217,9 +217,9 @@ class ParDeChaves:
             return False
 
         self._size = bits
-        if p is None or not sympy.is_prime(p):
+        if p is None or not sympy.isprime(p):
             p = Ferramentas.gerar_primo(self.size)
-        if q is None or not sympy.is_prime(q):
+        if q is None or not sympy.isprime(q):
             q = Ferramentas.gerar_primo(self.size)
         while True:
             while p == q:
@@ -405,10 +405,12 @@ class Mensagem:
         self._size = len(self._conteudo)
         return True
 
-    def load_chunks(self, chunks: List[Union[bytes, int]],
-                    padded: bool = False,
-                    padding: bytes = b'\x9F') -> bool:
+    def loads(self, chunks: List[Union[bytes, int]],
+              padded: bool = True,
+              padding: bytes = b'\x9F') -> bool:
         if len(chunks) < 1:
+            return False
+        if padded and len(padding) != 1:
             return False
         content = b''
         for chunk in chunks:
@@ -426,22 +428,21 @@ class Mensagem:
         self.conteudo = content
         return True
 
-    def as_chunks(self, size: int = 2,
-                  as_bytes: bool = True,
-                  add_padding: bool = False,
-                  padding: bytes = b'\x9F') -> Union[List[Union[bytes, int]], None]:
+    def dumps(self, size: int = 2,
+              as_bytes: bool = True,
+              add_padding: bool = True,
+              padding: bytes = b'\x9F') -> Union[List[Union[bytes, int]], None]:
         if size < 2:
             return None
         actual_size = size - 1
-        if add_padding:
-            if len(padding) > 1:
-                return None
-            actual_size = actual_size - 1
+        if add_padding and len(padding) != 1:
+            return None
+        actual_size = actual_size - (1 if add_padding else 0)
         if actual_size < 1:
             return None
         chunks = list()
         for i in range(0, len(self._conteudo), actual_size):
-            content = self._conteudo[i:i + actual_size] if not add_padding else self._conteudo[i:i + actual_size] + padding
+            content = self._conteudo[i:i + actual_size] + padding if add_padding else b''
             content = Ferramentas.crc8(content) + content
             if as_bytes:
                 chunks.append(content)
@@ -453,11 +454,11 @@ if __name__ == '__main__':
     chaves = ParDeChaves()
     chaves.generate(bits=48, issued_to="daniel@lobato.org")
     msg = Mensagem("Olá, mundo!")
-    chunks = msg.as_chunks(size=8, as_bytes=False, add_padding=True)
+    chunks = msg.dumps(size=8, as_bytes=False, add_padding=False)
     for c in chunks:
         print(c)
     msg2 = Mensagem()
-    if msg2.load_chunks(chunks, padded=True):
+    if msg2.loads(chunks, padded=False):
         print(msg2)
     else:
         print("Erro na decodificacao")
