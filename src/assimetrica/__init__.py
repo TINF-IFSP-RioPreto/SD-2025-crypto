@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Generator, Optional, Self, Union
+from typing import Generator, Optional, Self, Union, List
 
 import sympy
 from sympy.codegen.ast import Raise
@@ -97,6 +97,20 @@ class Ferramentas:
         except ValueError:
             return None
 
+    @staticmethod
+    def crc8(data: Union[str, bytes]) -> bytes:
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+        crc = 0
+        for byte in data:
+            crc ^= byte
+            for _ in range(8):
+                if crc & 0x80:
+                    crc = (crc << 1) ^ 0x07
+                else:
+                    crc <<= 1
+                crc &= 0xFF
+        return bytes([crc])
 
 class ParDeChaves:
     def __init__(self):
@@ -335,6 +349,8 @@ class Mensagem:
     def __init__(self, conteudo: Union[str, bytes] = None):
         if conteudo is None:
             self._conteudo = None
+            self._size = None
+            return
         elif isinstance(conteudo, str):
             self._conteudo = conteudo.encode('utf-8')
         elif isinstance(conteudo, bytes):
@@ -389,18 +405,59 @@ class Mensagem:
         self._size = len(self._conteudo)
         return True
 
-    def chunks(self, size: int = 1, as_bytes: bool = True) -> Union[Generator[Union[bytes, int]], None]:
-        if size < 1:
-            return None
-        if as_bytes:
-            return (self._conteudo[i:i + size]
-                    for i in range(0, len(self._conteudo), size))
-        else:
-            return (int.from_bytes(self._conteudo[i:i + size], byteorder='big')
-                    for i in range(0, len(self._conteudo), size))
+    def load_chunks(self, chunks: List[Union[bytes, int]],
+                    padded: bool = False,
+                    padding: bytes = b'\x9F') -> bool:
+        if len(chunks) < 1:
+            return False
+        content = b''
+        for chunk in chunks:
+            if isinstance(chunk, int):
+                data = chunk.to_bytes((chunk.bit_length() + 7) // 8, byteorder='big')
+            elif isinstance(chunk, bytes):
+                data = chunk
+            else:
+                return False
+            if padded and data[-1:] != padding:
+                return False
+            if data[0:1] != Ferramentas.crc8(data[1:]):
+                return False
+            content += data[1:-1] if padded else data[1:]
+        self.conteudo = content
+        return True
 
+    def as_chunks(self, size: int = 2,
+                  as_bytes: bool = True,
+                  add_padding: bool = False,
+                  padding: bytes = b'\x9F') -> Union[List[Union[bytes, int]], None]:
+        if size < 2:
+            return None
+        actual_size = size - 1
+        if add_padding:
+            if len(padding) > 1:
+                return None
+            actual_size = actual_size - 1
+        if actual_size < 1:
+            return None
+        chunks = list()
+        for i in range(0, len(self._conteudo), actual_size):
+            content = self._conteudo[i:i + actual_size] if not add_padding else self._conteudo[i:i + actual_size] + padding
+            content = Ferramentas.crc8(content) + content
+            if as_bytes:
+                chunks.append(content)
+            else:
+                chunks.append(int.from_bytes(content, byteorder='big'))
+        return chunks
 
 if __name__ == '__main__':
     chaves = ParDeChaves()
     chaves.generate(bits=48, issued_to="daniel@lobato.org")
-    print(chaves)
+    msg = Mensagem("Olá, mundo!")
+    chunks = msg.as_chunks(size=8, as_bytes=False, add_padding=True)
+    for c in chunks:
+        print(c)
+    msg2 = Mensagem()
+    if msg2.load_chunks(chunks, padded=True):
+        print(msg2)
+    else:
+        print("Erro na decodificacao")
