@@ -1,5 +1,6 @@
 import base64
 import binascii
+import hashlib
 import json
 import math
 import secrets
@@ -8,9 +9,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Self, Union
+from typing import Generator, Optional, Self, Union
 
 import sympy
+from sympy.codegen.ast import Raise
 
 
 class TipoChave(Enum):
@@ -138,6 +140,15 @@ class ParDeChaves:
             data.update({'public': {'n': self.n, 'e': self.e}})
         return json.dumps(data, indent=2)
 
+    def _same_base_metadata(self, other: Chave) -> bool:
+        return all([
+            self.issued_at is None or self.issued_at == other.issued_at,
+            self.issued_to is None or self.issued_to == other.issued_to,
+            self.serial is None or self.serial == other.serial,
+            self.size is None or self.size == other.size,
+            self.n is None or self.n == other.n
+        ])
+
     @property
     def n(self):
         return self._n
@@ -230,10 +241,10 @@ class ParDeChaves:
             return chave
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramentas.armored(
-            base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
-            start_banner='--- INICIO DE CHAVE PUBLICA ---',
-            end_banner='--- FINAL DE CHAVE PUBLICA ---',
-            width=72
+                base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
+                start_banner='--- INICIO DE CHAVE PUBLICA ---',
+                end_banner='--- FINAL DE CHAVE PUBLICA ---',
+                width=72
         )
 
     def private(self, armored: bool = False) -> Union[ChavePrivada, str]:
@@ -247,20 +258,11 @@ class ParDeChaves:
             return chave
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramentas.armored(
-            base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
-            start_banner='--- INICIO DE CHAVE PRIVADA ---',
-            end_banner='--- FINAL DE CHAVE PRIVADA ---',
-            width=72
+                base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
+                start_banner='--- INICIO DE CHAVE PRIVADA ---',
+                end_banner='--- FINAL DE CHAVE PRIVADA ---',
+                width=72
         )
-
-    def _same_base_metadata(self, other: Chave) -> bool:
-        return all([
-            self.issued_at is None or self.issued_at == other.issued_at,
-            self.issued_to is None or self.issued_to == other.issued_to,
-            self.serial is None or self.serial == other.serial,
-            self.size is None or self.size == other.size,
-            self.n is None or self.n == other.n
-        ])
 
     def load_key(self,
                  chave: Union[Chave, str] = None,
@@ -329,7 +331,76 @@ class ParDeChaves:
         return True
 
 
+class Mensagem:
+    def __init__(self, conteudo: Union[str, bytes] = None):
+        if conteudo is None:
+            self._conteudo = None
+        elif isinstance(conteudo, str):
+            self._conteudo = conteudo.encode('utf-8')
+        elif isinstance(conteudo, bytes):
+            self._conteudo = conteudo
+        else:
+            Raise(ValueError("Tipo incorreto"))
+        self._size = len(self._conteudo)
+
+    def __str__(self) -> str:
+        return self._conteudo.decode('utf-8')
+
+    @property
+    def conteudo(self) -> bytes:
+        return self._conteudo
+
+    @conteudo.setter
+    def conteudo(self, value: Union[str, bytes]):
+        if value is None:
+            self._conteudo = None
+        elif isinstance(value, str):
+            self._conteudo = value.encode('utf-8')
+        elif isinstance(value, bytes):
+            self._conteudo = value
+        else:
+            Raise(ValueError("Tipo incorreto"))
+        self._size = len(self._conteudo)
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    @property
+    def as_int(self) -> int:
+        return int.from_bytes(self._conteudo, byteorder='big')
+
+    @property
+    def get_hash(self):
+        return hashlib.sha512(self._conteudo).hexdigest()
+
+    def verify(self, expected: str) -> bool:
+        return self.get_hash == expected
+
+    def append(self, chunk: Union[str, bytes, int]) -> bool:
+        if isinstance(chunk, str):
+            self._conteudo += chunk.encode('utf-8')
+        elif isinstance(chunk, bytes):
+            self._conteudo += chunk
+        elif isinstance(chunk, int):
+            self._conteudo += chunk.to_bytes((chunk.bit_length() + 7) // 8, byteorder='big')
+        else:
+            Raise(ValueError("Tipo incorreto"))
+        self._size = len(self._conteudo)
+        return True
+
+    def chunks(self, size: int = 1, as_bytes: bool = True) -> Union[Generator[Union[bytes, int]], None]:
+        if size < 1:
+            return None
+        if as_bytes:
+            return (self._conteudo[i:i + size]
+                    for i in range(0, len(self._conteudo), size))
+        else:
+            return (int.from_bytes(self._conteudo[i:i + size], byteorder='big')
+                    for i in range(0, len(self._conteudo), size))
+
+
 if __name__ == '__main__':
     chaves = ParDeChaves()
-    chaves.generate(bits=7, issued_to="daniel@lobato.org")
+    chaves.generate(bits=48, issued_to="daniel@lobato.org")
     print(chaves)
