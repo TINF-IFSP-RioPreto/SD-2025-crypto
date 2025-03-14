@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Self, Union, List
+from typing import Optional, Self, Union, List, Any, Dict
 
 import sympy
 from sympy.codegen.ast import Raise
@@ -56,6 +56,8 @@ class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
             return obj.isoformat()
+        if isinstance(obj, bytes):
+            return base64.b64encode(obj).decode('utf-8')
         return super().default(obj)
 
 
@@ -87,8 +89,20 @@ class Ferramentas:
                 start_banner: str = '--- BEGIN ---',
                 end_banner: str = '--- END ---',
                 width: int = 72) -> str:
+        base_str = base64.b64encode(base_str.encode('utf-8')).decode('utf-8')
         wrapped = textwrap.fill(base_str, width)
         return f"{start_banner}\n{wrapped}\n{end_banner}"
+
+    @staticmethod
+    def unarmor(base_str: str,
+                start_banner: str = '--- BEGIN ---',
+                end_banner: str = '--- END ---') -> Optional[str]:
+        start_idx = base_str.find(start_banner)
+        end_idx = base_str.find(end_banner)
+        if start_idx == -1 or end_idx == -1 or start_idx > end_idx:
+            return None
+        base_str = base_str[start_idx + len(start_banner):end_idx].strip()
+        return base64.b64decode(base_str).decode('utf-8')
 
     @staticmethod
     def safe_fromisoformat(value) -> Optional[datetime]:
@@ -111,6 +125,117 @@ class Ferramentas:
                     crc <<= 1
                 crc &= 0xFF
         return bytes([crc])
+
+
+class Mensagem:
+    def __init__(self, conteudo: Union[str, bytes] = None):
+        if conteudo is None:
+            self._conteudo = None
+            self._size = None
+            return
+        elif isinstance(conteudo, str):
+            self._conteudo = conteudo.encode('utf-8')
+        elif isinstance(conteudo, bytes):
+            self._conteudo = conteudo
+        else:
+            Raise(ValueError("Tipo incorreto"))
+        self._size = len(self._conteudo)
+
+    def __str__(self) -> str:
+        return self._conteudo.decode('utf-8')
+
+    @property
+    def conteudo(self) -> bytes:
+        return self._conteudo
+
+    @conteudo.setter
+    def conteudo(self, value: Union[str, bytes]):
+        if value is None:
+            self._conteudo = None
+        elif isinstance(value, str):
+            self._conteudo = value.encode('utf-8')
+        elif isinstance(value, bytes):
+            self._conteudo = value
+        else:
+            Raise(ValueError("Tipo incorreto"))
+        self._size = len(self._conteudo)
+
+    @property
+    def size(self) -> int:
+        return self._size
+
+    @property
+    def as_int(self) -> int:
+        return int.from_bytes(self._conteudo, byteorder='big')
+
+    @property
+    def get_hash(self):
+        return hashlib.sha512(self._conteudo).hexdigest()
+
+    def verify(self, expected: str) -> bool:
+        return self.get_hash == expected
+
+    def append(self, chunk: Union[str, bytes, int]) -> bool:
+        if isinstance(chunk, str):
+            self._conteudo += chunk.encode('utf-8')
+        elif isinstance(chunk, bytes):
+            self._conteudo += chunk
+        elif isinstance(chunk, int):
+            self._conteudo += chunk.to_bytes((chunk.bit_length() + 7) // 8, byteorder='big')
+        else:
+            Raise(ValueError("Tipo incorreto"))
+        self._size = len(self._conteudo)
+        return True
+
+    def loads(self, chunks: List[Union[bytes, int]],
+              has_padding: bool = True,
+              padding: bytes = b'\x9F',
+              has_crc=True) -> bool:
+        if len(chunks) < 1:
+            return False
+        if has_padding and len(padding) != 1:
+            return False
+        content = b''
+        inicio = 1 if has_crc else 0
+        for chunk in chunks:
+            if isinstance(chunk, int):
+                data = chunk.to_bytes((chunk.bit_length() + 7) // 8, byteorder='big')
+            elif isinstance(chunk, bytes):
+                data = chunk
+            else:
+                return False
+            if has_padding and data[-1:] != padding:
+                return False
+            if has_crc and data[0:1] != Ferramentas.crc8(data[1:]):
+                return False
+            content += data[inicio:-1] if has_padding else data[1:]
+        self.conteudo = content
+        return True
+
+    def dumps(self, size: int = 2,
+              as_bytes: bool = True,
+              add_padding: bool = True,
+              padding: bytes = b'\x9F',
+              add_crc=True) -> Union[List[Union[bytes, int]], None]:
+        if size < 2:
+            return None
+        actual_size = size - 1 if add_crc else 0
+        if add_padding and len(padding) != 1:
+            return None
+        actual_size = actual_size - (1 if add_padding else 0)
+        if actual_size < 1:
+            return None
+        chunks = list()
+        for i in range(0, len(self._conteudo), actual_size):
+            content = self._conteudo[i:i + actual_size] + padding if add_padding else b''
+            if add_crc:
+                content = Ferramentas.crc8(content) + content
+            if as_bytes:
+                chunks.append(content)
+            else:
+                chunks.append(int.from_bytes(content, byteorder='big'))
+        return chunks
+
 
 class ParDeChaves:
     def __init__(self):
@@ -140,13 +265,13 @@ class ParDeChaves:
 
     def __str__(self):
         data = {
-            'phi_n'      : self.phi_n,
-            'size'       : self.size,
-            'issued_at'  : self.issued_at.strftime('%Y-%m-%d %H:%M:%S %Z'),
-            'issued_to'  : self.issued_to,
-            'serial'     : self.serial,
+            'phi_n': self.phi_n,
+            'size': self.size,
+            'issued_at': self.issued_at.strftime('%Y-%m-%d %H:%M:%S %Z'),
+            'issued_to': self.issued_to,
+            'serial': self.serial,
             'has_private': self.has_private,
-            'has_public' : self.has_public,
+            'has_public': self.has_public,
         }
         if self.has_private:
             data.update({'private': {'n': self.n, 'd': self.d}})
@@ -255,10 +380,10 @@ class ParDeChaves:
             return chave
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramentas.armored(
-                base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
-                start_banner='--- INICIO DE CHAVE PUBLICA ---',
-                end_banner='--- FINAL DE CHAVE PUBLICA ---',
-                width=72
+            base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
+            start_banner='--- INICIO DE CHAVE PUBLICA ---',
+            end_banner='--- FINAL DE CHAVE PUBLICA ---',
+            width=72
         )
 
     def private(self, armored: bool = False) -> Union[ChavePrivada, str]:
@@ -272,10 +397,10 @@ class ParDeChaves:
             return chave
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramentas.armored(
-                base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
-                start_banner='--- INICIO DE CHAVE PRIVADA ---',
-                end_banner='--- FINAL DE CHAVE PRIVADA ---',
-                width=72
+            base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
+            start_banner='--- INICIO DE CHAVE PRIVADA ---',
+            end_banner='--- FINAL DE CHAVE PRIVADA ---',
+            width=72
         )
 
     def load_key(self,
@@ -344,121 +469,84 @@ class ParDeChaves:
             self._has_public = True
         return True
 
-
-class Mensagem:
-    def __init__(self, conteudo: Union[str, bytes] = None):
-        if conteudo is None:
-            self._conteudo = None
-            self._size = None
-            return
-        elif isinstance(conteudo, str):
-            self._conteudo = conteudo.encode('utf-8')
-        elif isinstance(conteudo, bytes):
-            self._conteudo = conteudo
-        else:
-            Raise(ValueError("Tipo incorreto"))
-        self._size = len(self._conteudo)
-
-    def __str__(self) -> str:
-        return self._conteudo.decode('utf-8')
-
-    @property
-    def conteudo(self) -> bytes:
-        return self._conteudo
-
-    @conteudo.setter
-    def conteudo(self, value: Union[str, bytes]):
-        if value is None:
-            self._conteudo = None
-        elif isinstance(value, str):
-            self._conteudo = value.encode('utf-8')
-        elif isinstance(value, bytes):
-            self._conteudo = value
-        else:
-            Raise(ValueError("Tipo incorreto"))
-        self._size = len(self._conteudo)
-
-    @property
-    def size(self) -> int:
-        return self._size
-
-    @property
-    def as_int(self) -> int:
-        return int.from_bytes(self._conteudo, byteorder='big')
-
-    @property
-    def get_hash(self):
-        return hashlib.sha512(self._conteudo).hexdigest()
-
-    def verify(self, expected: str) -> bool:
-        return self.get_hash == expected
-
-    def append(self, chunk: Union[str, bytes, int]) -> bool:
-        if isinstance(chunk, str):
-            self._conteudo += chunk.encode('utf-8')
-        elif isinstance(chunk, bytes):
-            self._conteudo += chunk
-        elif isinstance(chunk, int):
-            self._conteudo += chunk.to_bytes((chunk.bit_length() + 7) // 8, byteorder='big')
-        else:
-            Raise(ValueError("Tipo incorreto"))
-        self._size = len(self._conteudo)
-        return True
-
-    def loads(self, chunks: List[Union[bytes, int]],
-              padded: bool = True,
-              padding: bytes = b'\x9F') -> bool:
-        if len(chunks) < 1:
-            return False
-        if padded and len(padding) != 1:
-            return False
-        content = b''
+    def cifrar(self,
+               msg: Mensagem,
+               add_padding: bool = True,
+               padding: bytes = b'\x9F',
+               add_crc: bool = True,
+               size: int = None,
+               armored: bool = False) -> Optional[Union[str, Dict[str, Any]]]:
+        if not self.has_public:
+            return None
+        if size is None:
+            size = self.size + 7 // 8
+        chunks = msg.dumps(size=size,
+                           as_bytes=False,
+                           add_padding=add_padding,
+                           padding=padding,
+                           add_crc=add_crc)
+        if chunks is None:
+            return None
+        cifrado = {'key_serial': self.serial,
+                   'key_size': self.size,
+                   'has_crc': add_crc,
+                   'has_padding': add_padding,
+                   'generated_at': datetime.now(timezone.utc).replace(microsecond=0),
+                   'chunks': []
+                   }
+        if add_padding:
+            cifrado['padding'] = padding
         for chunk in chunks:
-            if isinstance(chunk, int):
-                data = chunk.to_bytes((chunk.bit_length() + 7) // 8, byteorder='big')
-            elif isinstance(chunk, bytes):
-                data = chunk
-            else:
-                return False
-            if padded and data[-1:] != padding:
-                return False
-            if data[0:1] != Ferramentas.crc8(data[1:]):
-                return False
-            content += data[1:-1] if padded else data[1:]
-        self.conteudo = content
-        return True
+            cifrado['chunks'].append(pow(chunk, self.e, self.n))
+        if not armored:
+            return cifrado
+        return Ferramentas.armored(json.dumps(cifrado, cls=CustomJSONEncoder),
+                                   '--- INICIO DE MENSAGEM CIFRADA ---',
+                                   '--- FINAL DE MENSAGEM CIFRADA ---',
+                                   72)
 
-    def dumps(self, size: int = 2,
-              as_bytes: bool = True,
-              add_padding: bool = True,
-              padding: bytes = b'\x9F') -> Union[List[Union[bytes, int]], None]:
-        if size < 2:
+    def decifrar(self,
+                 msg: Union[str, Dict[str, Any]]) -> Optional[Mensagem]:
+        if not self.has_private:
             return None
-        actual_size = size - 1
-        if add_padding and len(padding) != 1:
+        if isinstance(msg, str):
+            content = Ferramentas.unarmor(msg,
+                                          '--- INICIO DE MENSAGEM CIFRADA ---',
+                                          '--- FINAL DE MENSAGEM CIFRADA ---')
+            if content is None:
+                return None
+            content = json.loads(content)
+        elif isinstance(msg, dict):
+            content = msg
+        else:
             return None
-        actual_size = actual_size - (1 if add_padding else 0)
-        if actual_size < 1:
+        del msg
+        if content.get('key_serial') != self.serial:
             return None
-        chunks = list()
-        for i in range(0, len(self._conteudo), actual_size):
-            content = self._conteudo[i:i + actual_size] + padding if add_padding else b''
-            content = Ferramentas.crc8(content) + content
-            if as_bytes:
-                chunks.append(content)
-            else:
-                chunks.append(int.from_bytes(content, byteorder='big'))
-        return chunks
+        padding = b'\x9F'
+        if content.get('padding', None) is not None:
+            padding = base64.b64decode(content.get('padding'))
+        chunks = content.get('chunks')
+        if chunks is None:
+            return None
+        decifrado = list()
+        for chunk in chunks:
+            decifrado.append(pow(chunk, self.d, self.n))
+        retorno = Mensagem()
+        if retorno.loads(decifrado,
+                         has_padding=content.get('has_padding', True),
+                         padding=padding,
+                         has_crc=content.get('has_crc', True)):
+            return retorno
+        else:
+            return None
+
 
 if __name__ == '__main__':
     chaves = ParDeChaves()
     chaves.generate(bits=48, issued_to="daniel@lobato.org")
     msg = Mensagem("Olá, mundo!")
-    chunks = msg.dumps(size=8, as_bytes=False, add_padding=False)
-    for c in chunks:
-        print(c)
-    msg2 = Mensagem()
-    if msg2.loads(chunks, padded=False):
-        print(msg2)
-    else:
-        print("Erro na decodificacao")
+    cifrado = chaves.cifrar(msg, armored=True, size=4)
+    print(cifrado)
+    decifrado = chaves.decifrar(cifrado)
+    print(decifrado)
