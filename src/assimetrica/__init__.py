@@ -4,7 +4,6 @@ import hashlib
 import json
 import math
 import secrets
-import textwrap
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,6 +12,8 @@ from typing import Any, Dict, List, Optional, Self, Union
 
 import sympy
 from sympy.codegen.ast import Raise
+
+from src.ferramental import Ferramental
 
 
 class TipoChave(Enum):
@@ -78,96 +79,11 @@ class Ferramentas:
         return None
 
     @staticmethod
-    def gerar_primo(bits: int = 8) -> int:
+    def gerar_primo(bits: int = 16) -> int:
         while True:
             num = secrets.randbits(bits) | 1
             if sympy.isprime(num):
                 return num
-
-    @staticmethod
-    def armored(base_str: str = None,
-                start_banner: str = '--- BEGIN ---',
-                end_banner: str = '--- END ---',
-                width: int = 72) -> str:
-        """
-        Codifica uma string em base64 e a formata com banners de início e fim.
-
-        Args:
-            base_str (str): A string base a ser codificada e formatada.
-            start_banner (str): O banner de início a ser adicionado. Padrão é '--- BEGIN ---'.
-            end_banner (str): O banner de fim a ser adicionado. Padrão é '--- END ---'.
-            width (int): A largura máxima de cada linha da string codificada. Padrão é 72.
-
-        Returns:
-            str: A string codificada em base64 e formatada com os banners de início e fim.
-        """
-        base_str = base64.b64encode(base_str.encode('utf-8')).decode('utf-8')
-        wrapped = textwrap.fill(base_str, width)
-        return f"{start_banner}\n{wrapped}\n{end_banner}"
-
-    @staticmethod
-    def unarmor(base_str: str,
-                start_banner: str = '--- BEGIN ---',
-                end_banner: str = '--- END ---') -> Optional[str]:
-        """
-        Remove banners de início e fim de uma string codificada em base64 e decodifica a string.
-
-        Args:
-            base_str (str): A string base codificada em base64 com banners.
-            start_banner (str): O banner de início a ser removido. Padrão é '--- BEGIN ---'.
-            end_banner (str): O banner de fim a ser removido. Padrão é '--- END ---'.
-
-        Returns:
-            Optional[str]: A string decodificada ou None se os banners não forem encontrados.
-        """
-        lines = base_str.splitlines()
-        try:
-            start_idx = lines.index(start_banner)
-            end_idx = lines.index(end_banner)
-        except ValueError:
-            return None
-        base_str = ''.join(lines[start_idx + 1:end_idx]).strip()
-        return base64.b64decode(base_str).decode('utf-8')
-
-    @staticmethod
-    def safe_fromisoformat(value) -> Optional[datetime]:
-        """
-        Converte uma string no formato ISO 8601 para um objeto datetime.
-
-        Args:
-            value (Union[str, datetime]): A string no formato ISO 8601 ou um objeto datetime.
-
-        Returns:
-            Optional[datetime]: O objeto datetime correspondente ou None se a conversão falhar.
-        """
-        try:
-            return datetime.fromisoformat(value) if isinstance(value, str) else value
-        except ValueError:
-            return None
-
-    @staticmethod
-    def crc8(data: Union[str, bytes]) -> bytes:
-        """
-        Calcula o CRC-8 de uma string ou bytes.
-
-        Args:
-            data (Union[str, bytes]): A string ou bytes para calcular o CRC-8.
-
-        Returns:
-            bytes: O valor CRC-8 calculado como um único byte.
-        """
-        if isinstance(data, str):
-            data = data.encode('utf-8')
-        crc = 0
-        for byte in data:
-            crc ^= byte
-            for _ in range(8):
-                if crc & 0x80:
-                    crc = (crc << 1) ^ 0x07
-                else:
-                    crc <<= 1
-                crc &= 0xFF
-        return bytes([crc])
 
 
 class Mensagem:
@@ -179,6 +95,7 @@ class Mensagem:
         _conteudo (bytes): O conteúdo da mensagem em bytes.
         _size (int): O tamanho do conteúdo da mensagem.
     """
+
     def __init__(self, conteudo: Union[str, bytes] = None):
         if conteudo is None:
             self._conteudo = None
@@ -278,7 +195,7 @@ class Mensagem:
                 return False
             if has_padding and data[-1:] != padding:
                 return False
-            if has_crc and data[0:1] != Ferramentas.crc8(data[1:]):
+            if has_crc and data[0:1] != Ferramental.crc8(data[1:]):
                 return False
             content += data[inicio:-1] if has_padding else data[1:]
         self.conteudo = content
@@ -315,7 +232,7 @@ class Mensagem:
         for i in range(0, len(self._conteudo), actual_size):
             content = self._conteudo[i:i + actual_size] + (padding if add_padding else b'')
             if add_crc:
-                content = Ferramentas.crc8(content) + content
+                content = Ferramental.crc8(content) + content
             if as_bytes:
                 chunks.append(content)
             else:
@@ -369,7 +286,7 @@ class Mensagem:
             cifrado['chunks'].append(pow(chunk, chave.e, chave.n))
         if not armored:
             return cifrado
-        return Ferramentas.armored(json.dumps(cifrado, cls=CustomJSONEncoder),
+        return Ferramental.armored(json.dumps(cifrado, cls=CustomJSONEncoder).encode('utf-8'),
                                    '--- INICIO DE MENSAGEM CIFRADA ---',
                                    '--- FINAL DE MENSAGEM CIFRADA ---',
                                    72)
@@ -382,7 +299,8 @@ class Mensagem:
 
         Args:
             chave (ChavePrivada): A chave privada usada para decifrar a mensagem.
-            msg (Union[str, Dict[str, Any]]): A mensagem cifrada, que pode ser uma string ou um dicionário.
+            msg (Union[str, Dict[str, Any]]): A mensagem cifrada, que pode ser uma string ou um
+            dicionário.
 
         Returns:
             bool: True se a decifração for bem-sucedida, False caso contrário.
@@ -390,7 +308,7 @@ class Mensagem:
         if chave.d is None or chave.n is None:
             return False
         if isinstance(msg, str):
-            content = Ferramentas.unarmor(msg,
+            content = Ferramental.unarmor(msg,
                                           '--- INICIO DE MENSAGEM CIFRADA ---',
                                           '--- FINAL DE MENSAGEM CIFRADA ---')
             if content is None:
@@ -453,7 +371,7 @@ class Mensagem:
             assinatura['chunks'].append(pow(chunk, chave.d, chave.n))
         if not armored:
             return assinatura
-        return Ferramentas.armored(json.dumps(assinatura, cls=CustomJSONEncoder),
+        return Ferramental.armored(json.dumps(assinatura, cls=CustomJSONEncoder).encode('utf-8'),
                                    '--- INICIO DE ASSINATURA ---',
                                    '--- FINAL DE ASSINATURA ---',
                                    72)
@@ -466,10 +384,12 @@ class Mensagem:
 
         Args:
             chave (ChavePublica): A chave pública usada para verificar a assinatura.
-            assinatura (Union[str, Dict[str, Any]]): A assinatura a ser verificada, que pode ser uma string ou um dicionário.
+            assinatura (Union[str, Dict[str, Any]]): A assinatura a ser verificada, que pode ser
+            uma string ou um dicionário.
 
         Returns:
-            Optional[Dict[str, Any]]: Um dicionário contendo informações sobre a verificação da assinatura, incluindo:
+            Optional[Dict[str, Any]]: Um dicionário contendo informações sobre a verificação da
+            assinatura, incluindo:
                 - 'valid' (bool): Indica se a assinatura é válida.
                 - 'key_serial' (str): O serial da chave usada para assinar.
                 - 'issued_to' (str): O destinatário da chave.
@@ -482,7 +402,7 @@ class Mensagem:
         if chave.e is None or chave.n is None:
             return retorno
         if isinstance(assinatura, str):
-            content = Ferramentas.unarmor(assinatura,
+            content = Ferramental.unarmor(assinatura,
                                           '--- INICIO DE ASSINATURA ---',
                                           '--- FINAL DE ASSINATURA ---')
             if content is None:
@@ -508,10 +428,11 @@ class Mensagem:
         retorno['key_serial'] = chave.serial
         retorno['issued_to'] = content.get('issued_to', None)
         if content.get('generated_at', None) is not None:
-            retorno['generated_at'] = Ferramentas.safe_fromisoformat(content.get('generated_at'))
+            retorno['generated_at'] = Ferramental.safe_fromisoformat(content.get('generated_at'))
         retorno['expected'] = str(msg)
         retorno['received'] = self.get_hash
-        retorno['valid'] = self.get_hash == str(msg)
+        # https://docs.python.org/3.13/library/secrets.html#secrets.compare_digest
+        retorno['valid'] = secrets.compare_digest(self.get_hash, str(msg))
         return retorno
 
 
@@ -520,10 +441,10 @@ class ParDeChaves:
     Classe para geração e manipulação de pares de chaves RSA.
 
     Atributos:
-        _n (int): O módulo \(n\) da chave RSA.
-        _phi_n (int): O valor de \(\phi(n)\) (função totiente de Euler).
-        _e (int): O expoente público \(e\) da chave RSA.
-        _d (int): O expoente privado \(d\) da chave RSA.
+        _n (int): O módulo n da chave RSA.
+        _phi_n (int): O valor de phi(n) (função totiente de Euler).
+        _e (int): O expoente público e da chave RSA.
+        _d (int): O expoente privado d da chave RSA.
         _size (int): O tamanho da chave em bits.
         _issued_at (datetime): A data e hora de emissão da chave.
         _issued_to (str): O proprietário da chave.
@@ -531,6 +452,7 @@ class ParDeChaves:
         _has_private (bool): Indica se a chave privada está presente.
         _has_public (bool): Indica se a chave pública está presente.
     """
+
     def __init__(self):
         self._n = None
         self._phi_n = None
@@ -632,10 +554,13 @@ class ParDeChaves:
 
         Args:
             bits (int): O tamanho em bits das chaves a serem geradas. Padrão é 16.
-            p (int): Um número primo opcional para ser usado na geração da chave. Se None, um primo será gerado automaticamente.
-            q (int): Um segundo número primo opcional para ser usado na geração da chave. Se None, um primo será gerado automaticamente.
+            p (int): Um número primo opcional para ser usado na geração da chave. Se None,
+            um primo será gerado automaticamente.
+            q (int): Um segundo número primo opcional para ser usado na geração da chave. Se
+            None, um primo será gerado automaticamente.
             issued_to (str): O proprietário da chave.
-            issued_at (datetime): A data e hora de emissão da chave. Se None, a data e hora atuais serão usadas.
+            issued_at (datetime): A data e hora de emissão da chave. Se None, a data e hora
+            atuais serão usadas.
 
         Returns:
             bool: True se a geração das chaves for bem-sucedida, False caso contrário.
@@ -682,7 +607,8 @@ class ParDeChaves:
             armored (bool): Indica se a chave deve ser retornada em formato armored. Padrão é False.
 
         Returns:
-            Union[ChavePublica, str]: A chave pública em formato ChavePublica ou string se armored for True.
+            Union[ChavePublica, str]: A chave pública em formato ChavePublica ou string se
+            armored for True.
         """
         chave = ChavePublica(issued_at=self.issued_at,
                              issued_to=self.issued_to,
@@ -693,8 +619,8 @@ class ParDeChaves:
         if not armored:
             return chave
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
-        return Ferramentas.armored(
-                base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
+        return Ferramental.armored(
+                base_bytes=chave.encode('utf-8'),
                 start_banner='--- INICIO DE CHAVE PUBLICA ---',
                 end_banner='--- FINAL DE CHAVE PUBLICA ---',
                 width=72
@@ -708,7 +634,8 @@ class ParDeChaves:
             armored (bool): Indica se a chave deve ser retornada em formato armored. Padrão é False.
 
         Returns:
-            Union[ChavePrivada, str]: A chave privada em formato ChavePrivada ou string se armored for True.
+            Union[ChavePrivada, str]: A chave privada em formato ChavePrivada ou string se
+            armored for True.
         """
         chave = ChavePrivada(issued_at=self.issued_at,
                              issued_to=self.issued_to,
@@ -719,8 +646,8 @@ class ParDeChaves:
         if not armored:
             return chave
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
-        return Ferramentas.armored(
-                base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
+        return Ferramental.armored(
+                base_bytes=chave.encode('utf-8'),
                 start_banner='--- INICIO DE CHAVE PRIVADA ---',
                 end_banner='--- FINAL DE CHAVE PRIVADA ---',
                 width=72
@@ -733,7 +660,8 @@ class ParDeChaves:
         Carrega uma chave pública ou privada.
 
         Args:
-            chave (Union[Chave, str]): A chave a ser carregada, que pode ser um objeto Chave ou uma string.
+            chave (Union[Chave, str]): A chave a ser carregada, que pode ser um objeto Chave ou
+            uma string.
             tipo (TipoChave): O tipo da chave (PUBLICA ou PRIVADA) se a chave for uma string.
 
         Returns:
@@ -784,7 +712,7 @@ class ParDeChaves:
         except (binascii.Error, ValueError):
             return False
         self._issued_to = chave.get('issued_to')
-        self._issued_at = Ferramentas.safe_fromisoformat(chave.get('issued_at'))
+        self._issued_at = Ferramental.safe_fromisoformat(chave.get('issued_at'))
         self._serial = chave.get('serial')
         self._size = chave.get('bits')
         self._n = chave.get('n')

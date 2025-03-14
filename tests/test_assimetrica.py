@@ -14,6 +14,7 @@ def par_de_chaves():
 
 def test_public_key(par_de_chaves):
     public_key = par_de_chaves.public()
+    assert par_de_chaves.has_public
     assert isinstance(public_key, ChavePublica)
     assert public_key.issued_to == "test@example.com"
 
@@ -27,6 +28,7 @@ def test_public_key_armored(par_de_chaves):
 
 def test_private_key(par_de_chaves):
     private_key = par_de_chaves.private()
+    assert par_de_chaves.has_private
     assert isinstance(private_key, ChavePrivada)
     assert private_key.issued_to == "test@example.com"
 
@@ -44,6 +46,7 @@ def test_load_public_key(par_de_chaves):
     assert new_chaves.load_key(public_key_str, TipoChave.PUBLICA)
     assert new_chaves.has_public
     assert new_chaves.issued_to == "test@example.com"
+    assert par_de_chaves.serial == new_chaves.serial
 
 
 def test_load_private_key(par_de_chaves):
@@ -52,3 +55,4 @@ def test_load_private_key(par_de_chaves):
     assert new_chaves.load_key(private_key_str, TipoChave.PRIVADA)
     assert new_chaves.has_private
     assert new_chaves.issued_to == "test@example.com"
+    assert par_de_chaves.serial == new_chaves.serial

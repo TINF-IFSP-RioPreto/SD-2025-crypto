@@ -1,33 +1,72 @@
 import json
+import os
 
-from simetrica import gerar_chave, cifrar, decifrar
-from assimetrica import Chave
-from src.assimetrica import ParDeChaves
-from tests.test_simetrica import nova_chave
+from simetrica import cifrar, decifrar, gerar_chave
+from src.assimetrica import Mensagem, ParDeChaves, TipoChave
+
+# Armazenamento das chaves do usuário no banco #################################
+# Esse salt precisa estar no banco, e deve ser gerado na hora em que o
+# usuário for adicionado ao banco. Se for modificado, precisa novamente
+# cifrar e armazenar a senha de assinatura do usuário
+salt = os.urandom(16)
 
 chaves_do_usuario = ParDeChaves()
-chavesimetrica = gerar_chave()
-print(chavesimetrica)
 chaves_do_usuario.generate(bits=256)
-privada = chaves_do_usuario.private()
-privada_cifrada = cifrar(chavesimetrica, str(privada).encode('utf-8'))
-print(privada_cifrada)
+privada = chaves_do_usuario.private(armored=True)
+publica = chaves_do_usuario.public(armored=True)
+senha = input("Digite a senha de assinatura: ")
 
+chavesimetrica = gerar_chave(password=senha.encode('utf-8'), salt=salt)
+
+# Isso é que vai pro banco #####################################################
+# O que estamos fazendo com a chave privada é Key Wrapping
+# https://cryptography.io/en/latest/hazmat/primitives/keywrap/#key-wrapping
+privada_cifrada = cifrar(chavesimetrica, str(privada).encode('utf-8'), armored=True)
+publica_aberta = publica
+
+
+
+# Assinar o registro ###########################################################
 registro = {'id': 1,
             'nome': 'Alice',
             'email': 'alice@gmail.com'
             }
-registro_serializado = json.dumps(registro)
-
+# Transforma em uma Mensagem para ser assinada
+registro_serializado = Mensagem(json.dumps(registro))
 print(registro_serializado)
 
-senha = input("Digite a senha de assinatura: ")
+# Carrega a chave privada cifrada do banco e decifra ela com a senha de assinatura
+chave_privada_para_assinar = decifrar(chavesimetrica, privada_cifrada).decode('utf-8')
 
-chave_privada_para_assinar = decifrar(senha.encode('utf-8'), privada_cifrada).decode('utf-8')
+# Criar um par de chaves para extrair a chave privada e assinar
+nova = ParDeChaves()
+nova.load_key(chave_privada_para_assinar, TipoChave.PRIVADA)
 
-print(chave_privada_para_assinar)
+# É essa assinatura que vai pro registro no banco
+assinatura = registro_serializado.assinar(nova.private(), armored=True)
+print(assinatura)
 
-nova_chave = ParDeChaves()
-nova_chave.load_key(chave_privada_para_assinar)
 
-nova_chave.assinar(registro_serializado.encode('utf-8'), arm)
+
+
+
+# Verificar assinatura do registro #############################################
+# Obter do banco a chave publica do usuario, para verificar a assinatura
+chave_publica_para_verificar = publica_aberta
+nova = ParDeChaves()
+nova.load_key(chave_publica_para_verificar, TipoChave.PUBLICA)
+
+# Verificar o registro sem mudanças
+resultado = registro_serializado.verificar_assinatura(chave=nova.public(),
+                                          assinatura=assinatura)
+print(resultado)
+
+# Verificar o registro com mudanças
+registro = {'id'   : 1,
+            'nome' : 'Bob',
+            'email': 'bob@gmail.com'
+            }
+registro_serializado = Mensagem(json.dumps(registro))
+resultado = registro_serializado.verificar_assinatura(chave=nova.public(),
+                                                      assinatura=assinatura)
+print(resultado)

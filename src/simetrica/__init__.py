@@ -1,15 +1,17 @@
 import base64
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+from src.ferramental import Ferramental
+
 
 def gerar_chave(password: bytes = None,
                 salt: bytes = None) -> Optional[bytes]:
     """
-    Gera uma chave de criptografia.
+    Gera uma chave de criptografia para Fernet a partir de uma senha.
 
     Se `password` for None, gera uma chave aleatória usando Fernet.
     Se `password` for fornecido, `salt` também deve ser fornecido para
@@ -30,27 +32,31 @@ def gerar_chave(password: bytes = None,
         return None
 
     kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=1_200_000,
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=1_200_000,
     )
     key = base64.urlsafe_b64encode(kdf.derive(password))
     return key
 
 
 def cifrar(chave: bytes,
-           mensagem: bytes) -> Optional[bytes]:
+           mensagem: bytes,
+           armored: bool = False) -> Optional[Union[bytes, str]]:
     """
     Cifra uma mensagem usando a chave fornecida.
 
     Args:
         chave (bytes): A chave de criptografia.
         mensagem (bytes): A mensagem a ser cifrada.
+        armored (bool): Indica se a mensagem cifrada deve ser retornada em
+                        formato armored. Padrão é False.
 
     Returns:
         Optional[bytes]: A mensagem cifrada ou None se a chave ou a mensagem
                          forem inválidas.
+
     """
     if chave is None or mensagem is None:
         return None
@@ -62,12 +68,15 @@ def cifrar(chave: bytes,
         return None
 
     f = Fernet(chave)
+    cifrado = f.encrypt(mensagem)
 
-    return f.encrypt(mensagem)
+    if not armored:
+        return cifrado
+    return Ferramental.armored(cifrado)
 
 
 def decifrar(chave: bytes,
-             criptotexto: bytes,
+             criptotexto: Union[bytes, str],
              ttl: int = None) -> Optional[bytes]:
     """
     Decifra um criptotexto usando a chave fornecida.
@@ -89,7 +98,9 @@ def decifrar(chave: bytes,
     if len(chave) != 44 or not isinstance(chave, bytes):
         return None
 
-    if not isinstance(criptotexto, bytes):
+    if isinstance(criptotexto, str):
+        criptotexto = Ferramental.unarmor(criptotexto)
+    elif not isinstance(criptotexto, bytes):
         return None
 
     f = Fernet(chave)
@@ -98,6 +109,7 @@ def decifrar(chave: bytes,
         return f.decrypt(criptotexto, ttl=ttl)
     except InvalidToken:
         return None
+
 
 def _criar_matriz(chave, mensagem) -> Tuple[List[List[str]], int, int]:
     # Calcula o número de colunas e linhas
