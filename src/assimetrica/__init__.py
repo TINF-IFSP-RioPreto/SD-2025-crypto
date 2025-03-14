@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Self, Union, List, Any, Dict
+from typing import Any, Dict, List, Optional, Self, Union
 
 import sympy
 from sympy.codegen.ast import Raise
@@ -89,6 +89,18 @@ class Ferramentas:
                 start_banner: str = '--- BEGIN ---',
                 end_banner: str = '--- END ---',
                 width: int = 72) -> str:
+        """
+        Codifica uma string em base64 e a formata com banners de início e fim.
+
+        Args:
+            base_str (str): A string base a ser codificada e formatada.
+            start_banner (str): O banner de início a ser adicionado. Padrão é '--- BEGIN ---'.
+            end_banner (str): O banner de fim a ser adicionado. Padrão é '--- END ---'.
+            width (int): A largura máxima de cada linha da string codificada. Padrão é 72.
+
+        Returns:
+            str: A string codificada em base64 e formatada com os banners de início e fim.
+        """
         base_str = base64.b64encode(base_str.encode('utf-8')).decode('utf-8')
         wrapped = textwrap.fill(base_str, width)
         return f"{start_banner}\n{wrapped}\n{end_banner}"
@@ -97,15 +109,37 @@ class Ferramentas:
     def unarmor(base_str: str,
                 start_banner: str = '--- BEGIN ---',
                 end_banner: str = '--- END ---') -> Optional[str]:
-        start_idx = base_str.find(start_banner)
-        end_idx = base_str.find(end_banner)
-        if start_idx == -1 or end_idx == -1 or start_idx > end_idx:
+        """
+        Remove banners de início e fim de uma string codificada em base64 e decodifica a string.
+
+        Args:
+            base_str (str): A string base codificada em base64 com banners.
+            start_banner (str): O banner de início a ser removido. Padrão é '--- BEGIN ---'.
+            end_banner (str): O banner de fim a ser removido. Padrão é '--- END ---'.
+
+        Returns:
+            Optional[str]: A string decodificada ou None se os banners não forem encontrados.
+        """
+        lines = base_str.splitlines()
+        try:
+            start_idx = lines.index(start_banner)
+            end_idx = lines.index(end_banner)
+        except ValueError:
             return None
-        base_str = base_str[start_idx + len(start_banner):end_idx].strip()
+        base_str = ''.join(lines[start_idx + 1:end_idx]).strip()
         return base64.b64decode(base_str).decode('utf-8')
 
     @staticmethod
     def safe_fromisoformat(value) -> Optional[datetime]:
+        """
+        Converte uma string no formato ISO 8601 para um objeto datetime.
+
+        Args:
+            value (Union[str, datetime]): A string no formato ISO 8601 ou um objeto datetime.
+
+        Returns:
+            Optional[datetime]: O objeto datetime correspondente ou None se a conversão falhar.
+        """
         try:
             return datetime.fromisoformat(value) if isinstance(value, str) else value
         except ValueError:
@@ -113,6 +147,15 @@ class Ferramentas:
 
     @staticmethod
     def crc8(data: Union[str, bytes]) -> bytes:
+        """
+        Calcula o CRC-8 de uma string ou bytes.
+
+        Args:
+            data (Union[str, bytes]): A string ou bytes para calcular o CRC-8.
+
+        Returns:
+            bytes: O valor CRC-8 calculado como um único byte.
+        """
         if isinstance(data, str):
             data = data.encode('utf-8')
         crc = 0
@@ -172,9 +215,6 @@ class Mensagem:
     def get_hash(self):
         return hashlib.sha512(self._conteudo).hexdigest()
 
-    def verify(self, expected: str) -> bool:
-        return self.get_hash == expected
-
     def append(self, chunk: Union[str, bytes, int]) -> bool:
         if isinstance(chunk, str):
             self._conteudo += chunk.encode('utf-8')
@@ -191,6 +231,18 @@ class Mensagem:
               has_padding: bool = True,
               padding: bytes = b'\x9F',
               has_crc=True) -> bool:
+        """
+        Carrega e decodifica uma lista de chunks em bytes ou inteiros.
+
+        Args:
+            chunks (List[Union[bytes, int]]): Lista de chunks a serem decodificados.
+            has_padding (bool): Indica se os chunks têm padding. Padrão é True.
+            padding (bytes): Byte de padding a ser verificado. Padrão é b'\\x9F'.
+            has_crc (bool): Indica se os chunks têm CRC. Padrão é True.
+
+        Returns:
+            bool: True se a carga e decodificação forem bem-sucedidas, False caso contrário.
+        """
         if len(chunks) < 1:
             return False
         if has_padding and len(padding) != 1:
@@ -217,6 +269,20 @@ class Mensagem:
               add_padding: bool = True,
               padding: bytes = b'\x9F',
               add_crc=True) -> Union[List[Union[bytes, int]], None]:
+        """
+        Serializa o conteúdo em uma lista de chunks de bytes ou inteiros.
+
+        Args:
+            size (int): O tamanho de cada chunk. Padrão é 2.
+            as_bytes (bool): Indica se os chunks devem ser retornados como bytes. Padrão é True.
+            add_padding (bool): Indica se deve adicionar padding aos chunks. Padrão é True.
+            padding (bytes): O byte de padding a ser adicionado. Padrão é b'\\x9F'.
+            add_crc (bool): Indica se deve adicionar CRC aos chunks. Padrão é True.
+
+        Returns:
+            Union[List[Union[bytes, int]], None]: Uma lista de chunks serializados ou None se
+            ocorrer um erro.
+        """
         if size < 2:
             return None
         actual_size = size - 1 if add_crc else 0
@@ -227,7 +293,7 @@ class Mensagem:
             return None
         chunks = list()
         for i in range(0, len(self._conteudo), actual_size):
-            content = self._conteudo[i:i + actual_size] + padding if add_padding else b''
+            content = self._conteudo[i:i + actual_size] + (padding if add_padding else b'')
             if add_crc:
                 content = Ferramentas.crc8(content) + content
             if as_bytes:
@@ -235,6 +301,198 @@ class Mensagem:
             else:
                 chunks.append(int.from_bytes(content, byteorder='big'))
         return chunks
+
+    def cifrar(self,
+               chave: ChavePublica,
+               add_padding: bool = True,
+               padding: bytes = b'\x9F',
+               add_crc=True,
+               size: int = None,
+               armored: bool = False) -> Optional[Union[str, Dict[str, Any]]]:
+        """
+        Cifra o conteúdo da mensagem usando uma chave pública.
+
+        Args:
+            chave (ChavePublica): A chave pública usada para cifrar a mensagem.
+            add_padding (bool): Indica se deve adicionar padding aos chunks. Padrão é True.
+            padding (bytes): O byte de padding a ser adicionado. Padrão é b'\\x9F'.
+            add_crc (bool): Indica se deve adicionar CRC aos chunks. Padrão é True.
+            size (int): O tamanho de cada chunk. Se None, será calculado automaticamente.
+            armored (bool): Indica se a mensagem cifrada deve ser retornada em formato armored.
+            Padrão é False.
+
+        Returns:
+            Optional[Union[str, Dict[str, Any]]]: A mensagem cifrada em formato dict ou string se
+            armored for True, ou None se ocorrer um erro.
+        """
+        if chave.e is None or chave.n is None:
+            return None
+        if size is None:
+            size = chave.size + 7 // 8
+        chunks = self.dumps(size=size,
+                            as_bytes=False,
+                            add_padding=add_padding,
+                            padding=padding,
+                            add_crc=add_crc)
+        if chunks is None:
+            return None
+        cifrado = {
+            'key_serial'  : chave.serial,
+            'has_crc'     : add_crc,
+            'has_padding' : add_padding,
+            'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            'chunks'      : [],
+        }
+        if add_padding:
+            cifrado['padding'] = padding
+        for chunk in chunks:
+            cifrado['chunks'].append(pow(chunk, chave.e, chave.n))
+        if not armored:
+            return cifrado
+        return Ferramentas.armored(json.dumps(cifrado, cls=CustomJSONEncoder),
+                                   '--- INICIO DE MENSAGEM CIFRADA ---',
+                                   '--- FINAL DE MENSAGEM CIFRADA ---',
+                                   72)
+
+    def decifrar(self,
+                 chave: ChavePrivada,
+                 msg: Union[str, Dict[str, Any]]) -> bool:
+        """
+        Decifra o conteúdo da mensagem usando uma chave privada.
+
+        Args:
+            chave (ChavePrivada): A chave privada usada para decifrar a mensagem.
+            msg (Union[str, Dict[str, Any]]): A mensagem cifrada, que pode ser uma string ou um dicionário.
+
+        Returns:
+            bool: True se a decifração for bem-sucedida, False caso contrário.
+        """
+        if chave.d is None or chave.n is None:
+            return False
+        if isinstance(msg, str):
+            content = Ferramentas.unarmor(msg,
+                                          '--- INICIO DE MENSAGEM CIFRADA ---',
+                                          '--- FINAL DE MENSAGEM CIFRADA ---')
+            if content is None:
+                return False
+            content = json.loads(content)
+        elif isinstance(msg, dict):
+            content = msg
+        else:
+            return False
+        if content.get('key_serial') != chave.serial:
+            return False
+        padding = b'\x9F'
+        if content.get('padding', None) is not None:
+            padding = base64.b64decode(content.get('padding'))
+        chunks = content.get('chunks')
+        if chunks is None:
+            return False
+        decifrado = list()
+        for chunk in chunks:
+            decifrado.append(pow(chunk, chave.d, chave.n))
+        return self.loads(decifrado,
+                          has_padding=content.get('has_padding', True),
+                          padding=padding,
+                          has_crc=content.get('has_crc', True))
+
+    def assinar(self,
+                chave: ChavePrivada,
+                armored: bool = True) -> Optional[Union[str, Dict[str, Any]]]:
+        """
+        Assina o conteúdo da mensagem usando uma chave privada.
+
+        Args:
+            chave (ChavePrivada): A chave privada usada para assinar a mensagem.
+            armored (bool): Indica se a assinatura deve ser retornada em formato armored. Padrão
+            é True.
+
+        Returns:
+            Optional[Union[str, Dict[str, Any]]]: A assinatura em formato dict ou string se
+            armored for True, ou None se ocorrer um erro.
+        """
+        if chave.d is None or chave.n is None:
+            return None
+        resumo = Mensagem(self.get_hash)
+        chunks = resumo.dumps(size=10,
+                              as_bytes=False,
+                              add_padding=False,
+                              add_crc=True)
+        del resumo
+        if chunks is None:
+            return None
+        assinatura = {
+            'key_serial'  : chave.serial,
+            'issued_to'   : chave.issued_to,
+            'has_crc'     : True,
+            'has_padding' : False,
+            'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            'chunks'      : [],
+        }
+        for chunk in chunks:
+            assinatura['chunks'].append(pow(chunk, chave.d, chave.n))
+        if not armored:
+            return assinatura
+        return Ferramentas.armored(json.dumps(assinatura, cls=CustomJSONEncoder),
+                                   '--- INICIO DE ASSINATURA ---',
+                                   '--- FINAL DE ASSINATURA ---',
+                                   72)
+
+    def verificar_assinatura(self,
+                             chave: ChavePublica,
+                             assinatura: Union[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Verifica a assinatura de uma mensagem usando uma chave pública.
+
+        Args:
+            chave (ChavePublica): A chave pública usada para verificar a assinatura.
+            assinatura (Union[str, Dict[str, Any]]): A assinatura a ser verificada, que pode ser uma string ou um dicionário.
+
+        Returns:
+            Optional[Dict[str, Any]]: Um dicionário contendo informações sobre a verificação da assinatura, incluindo:
+                - 'valid' (bool): Indica se a assinatura é válida.
+                - 'key_serial' (str): O serial da chave usada para assinar.
+                - 'issued_to' (str): O destinatário da chave.
+                - 'generated_at' (datetime): A data e hora em que a assinatura foi gerada.
+                - 'expected' (str): O hash esperado da mensagem.
+        """
+        retorno = {
+            'valid': False
+        }
+        if chave.e is None or chave.n is None:
+            return retorno
+        if isinstance(assinatura, str):
+            content = Ferramentas.unarmor(assinatura,
+                                          '--- INICIO DE ASSINATURA ---',
+                                          '--- FINAL DE ASSINATURA ---')
+            if content is None:
+                return retorno
+            content = json.loads(content)
+        elif isinstance(assinatura, dict):
+            content = assinatura
+        else:
+            return retorno
+        if content.get('key_serial') != chave.serial:
+            return retorno
+        chunks = content.get('chunks')
+        if chunks is None:
+            return retorno
+        decifrado = list()
+        for chunk in chunks:
+            decifrado.append(pow(chunk, chave.e, chave.n))
+        msg = Mensagem()
+        if not msg.loads(decifrado,
+                         has_padding=False,
+                         has_crc=True):
+            return retorno
+        retorno['key_serial'] = chave.serial
+        retorno['issued_to'] = content.get('issued_to', None)
+        if content.get('generated_at', None) is not None:
+            retorno['generated_at'] = Ferramentas.safe_fromisoformat(content.get('generated_at'))
+        retorno['expected'] = str(msg)
+        retorno['received'] = self.get_hash
+        retorno['valid'] = self.get_hash == str(msg)
+        return retorno
 
 
 class ParDeChaves:
@@ -265,13 +523,13 @@ class ParDeChaves:
 
     def __str__(self):
         data = {
-            'phi_n': self.phi_n,
-            'size': self.size,
-            'issued_at': self.issued_at.strftime('%Y-%m-%d %H:%M:%S %Z'),
-            'issued_to': self.issued_to,
-            'serial': self.serial,
+            'phi_n'      : self.phi_n,
+            'size'       : self.size,
+            'issued_at'  : self.issued_at.strftime('%Y-%m-%d %H:%M:%S %Z'),
+            'issued_to'  : self.issued_to,
+            'serial'     : self.serial,
             'has_private': self.has_private,
-            'has_public': self.has_public,
+            'has_public' : self.has_public,
         }
         if self.has_private:
             data.update({'private': {'n': self.n, 'd': self.d}})
@@ -334,7 +592,19 @@ class ParDeChaves:
                  q: int = None,
                  issued_to: str = None,
                  issued_at: datetime = None) -> bool:
+        """
+        Gera um par de chaves RSA.
 
+        Args:
+            bits (int): O tamanho em bits das chaves a serem geradas. Padrão é 16.
+            p (int): Um número primo opcional para ser usado na geração da chave. Se None, um primo será gerado automaticamente.
+            q (int): Um segundo número primo opcional para ser usado na geração da chave. Se None, um primo será gerado automaticamente.
+            issued_to (str): O proprietário da chave.
+            issued_at (datetime): A data e hora de emissão da chave. Se None, a data e hora atuais serão usadas.
+
+        Returns:
+            bool: True se a geração das chaves for bem-sucedida, False caso contrário.
+        """
         if self.has_private or self.has_public:
             return False
 
@@ -370,6 +640,15 @@ class ParDeChaves:
         return True
 
     def public(self, armored: bool = False) -> Union[ChavePublica, str]:
+        """
+        Retorna a chave pública.
+
+        Args:
+            armored (bool): Indica se a chave deve ser retornada em formato armored. Padrão é False.
+
+        Returns:
+            Union[ChavePublica, str]: A chave pública em formato ChavePublica ou string se armored for True.
+        """
         chave = ChavePublica(issued_at=self.issued_at,
                              issued_to=self.issued_to,
                              serial=self.serial,
@@ -380,13 +659,22 @@ class ParDeChaves:
             return chave
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramentas.armored(
-            base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
-            start_banner='--- INICIO DE CHAVE PUBLICA ---',
-            end_banner='--- FINAL DE CHAVE PUBLICA ---',
-            width=72
+                base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
+                start_banner='--- INICIO DE CHAVE PUBLICA ---',
+                end_banner='--- FINAL DE CHAVE PUBLICA ---',
+                width=72
         )
 
     def private(self, armored: bool = False) -> Union[ChavePrivada, str]:
+        """
+        Retorna a chave privada.
+
+        Args:
+            armored (bool): Indica se a chave deve ser retornada em formato armored. Padrão é False.
+
+        Returns:
+            Union[ChavePrivada, str]: A chave privada em formato ChavePrivada ou string se armored for True.
+        """
         chave = ChavePrivada(issued_at=self.issued_at,
                              issued_to=self.issued_to,
                              serial=self.serial,
@@ -397,15 +685,25 @@ class ParDeChaves:
             return chave
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramentas.armored(
-            base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
-            start_banner='--- INICIO DE CHAVE PRIVADA ---',
-            end_banner='--- FINAL DE CHAVE PRIVADA ---',
-            width=72
+                base_str=base64.b64encode(chave.encode('utf-8')).decode('utf-8'),
+                start_banner='--- INICIO DE CHAVE PRIVADA ---',
+                end_banner='--- FINAL DE CHAVE PRIVADA ---',
+                width=72
         )
 
     def load_key(self,
                  chave: Union[Chave, str] = None,
                  tipo: TipoChave = None) -> bool:
+        """
+        Carrega uma chave pública ou privada.
+
+        Args:
+            chave (Union[Chave, str]): A chave a ser carregada, que pode ser um objeto Chave ou uma string.
+            tipo (TipoChave): O tipo da chave (PUBLICA ou PRIVADA) se a chave for uma string.
+
+        Returns:
+            bool: True se a chave for carregada com sucesso, False caso contrário.
+        """
         if chave is None:
             return False
         if isinstance(chave, Chave):  # Carregar dados comuns aos dois tipos de chave
@@ -469,84 +767,27 @@ class ParDeChaves:
             self._has_public = True
         return True
 
-    def cifrar(self,
-               msg: Mensagem,
-               add_padding: bool = True,
-               padding: bytes = b'\x9F',
-               add_crc: bool = True,
-               size: int = None,
-               armored: bool = False) -> Optional[Union[str, Dict[str, Any]]]:
-        if not self.has_public:
-            return None
-        if size is None:
-            size = self.size + 7 // 8
-        chunks = msg.dumps(size=size,
-                           as_bytes=False,
-                           add_padding=add_padding,
-                           padding=padding,
-                           add_crc=add_crc)
-        if chunks is None:
-            return None
-        cifrado = {'key_serial': self.serial,
-                   'key_size': self.size,
-                   'has_crc': add_crc,
-                   'has_padding': add_padding,
-                   'generated_at': datetime.now(timezone.utc).replace(microsecond=0),
-                   'chunks': []
-                   }
-        if add_padding:
-            cifrado['padding'] = padding
-        for chunk in chunks:
-            cifrado['chunks'].append(pow(chunk, self.e, self.n))
-        if not armored:
-            return cifrado
-        return Ferramentas.armored(json.dumps(cifrado, cls=CustomJSONEncoder),
-                                   '--- INICIO DE MENSAGEM CIFRADA ---',
-                                   '--- FINAL DE MENSAGEM CIFRADA ---',
-                                   72)
-
-    def decifrar(self,
-                 msg: Union[str, Dict[str, Any]]) -> Optional[Mensagem]:
-        if not self.has_private:
-            return None
-        if isinstance(msg, str):
-            content = Ferramentas.unarmor(msg,
-                                          '--- INICIO DE MENSAGEM CIFRADA ---',
-                                          '--- FINAL DE MENSAGEM CIFRADA ---')
-            if content is None:
-                return None
-            content = json.loads(content)
-        elif isinstance(msg, dict):
-            content = msg
-        else:
-            return None
-        del msg
-        if content.get('key_serial') != self.serial:
-            return None
-        padding = b'\x9F'
-        if content.get('padding', None) is not None:
-            padding = base64.b64decode(content.get('padding'))
-        chunks = content.get('chunks')
-        if chunks is None:
-            return None
-        decifrado = list()
-        for chunk in chunks:
-            decifrado.append(pow(chunk, self.d, self.n))
-        retorno = Mensagem()
-        if retorno.loads(decifrado,
-                         has_padding=content.get('has_padding', True),
-                         padding=padding,
-                         has_crc=content.get('has_crc', True)):
-            return retorno
-        else:
-            return None
-
 
 if __name__ == '__main__':
     chaves = ParDeChaves()
-    chaves.generate(bits=48, issued_to="daniel@lobato.org")
+    chaves.generate(bits=512, issued_to="daniel@lobato.org")
+
     msg = Mensagem("Olá, mundo!")
-    cifrado = chaves.cifrar(msg, armored=True, size=4)
+    cifrado = msg.cifrar(chaves.public(), armored=True, size=4)
     print(cifrado)
-    decifrado = chaves.decifrar(cifrado)
-    print(decifrado)
+    decifrado = Mensagem()
+    if decifrado.decifrar(chaves.private(), cifrado):
+        print(decifrado)
+    else:
+        print("Erro")
+
+    msg = Mensagem("O rato roeu a roupa do rei de Roma")
+    assinatura = msg.assinar(chaves.private(), armored=False)
+    print(json.dumps(assinatura, indent=2))
+
+    resultado = msg.verificar_assinatura(chaves.public(), assinatura)
+    print(json.dumps(resultado, cls=CustomJSONEncoder, indent=2))
+
+    msg = Mensagem("O rato roeu a roupa do rei de Milão")
+    resultado = msg.verificar_assinatura(chaves.public(), assinatura)
+    print(json.dumps(resultado, cls=CustomJSONEncoder, indent=2))
