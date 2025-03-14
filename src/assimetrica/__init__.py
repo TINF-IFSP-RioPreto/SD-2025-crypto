@@ -171,6 +171,14 @@ class Ferramentas:
 
 
 class Mensagem:
+    """
+    Classe para manipulação de mensagens, permitindo operações como cifrar,
+     decifrar, assinar e verificar assinaturas.
+
+    Atributos:
+        _conteudo (bytes): O conteúdo da mensagem em bytes.
+        _size (int): O tamanho do conteúdo da mensagem.
+    """
     def __init__(self, conteudo: Union[str, bytes] = None):
         if conteudo is None:
             self._conteudo = None
@@ -213,9 +221,20 @@ class Mensagem:
 
     @property
     def get_hash(self):
-        return hashlib.sha512(self._conteudo).hexdigest()
+        return hashlib.sha256(self._conteudo).hexdigest()
 
     def append(self, chunk: Union[str, bytes, int]) -> bool:
+        """
+        Adiciona um chunk ao conteúdo da mensagem.
+
+        Args:
+            chunk (Union[str, bytes, int]): O chunk a ser adicionado, que pode
+                                            ser uma string, bytes ou um inteiro.
+
+        Returns:
+            bool: True se o chunk foi adicionado com sucesso
+                  False caso contrário.
+            """
         if isinstance(chunk, str):
             self._conteudo += chunk.encode('utf-8')
         elif isinstance(chunk, bytes):
@@ -241,7 +260,8 @@ class Mensagem:
             has_crc (bool): Indica se os chunks têm CRC. Padrão é True.
 
         Returns:
-            bool: True se a carga e decodificação forem bem-sucedidas, False caso contrário.
+            bool: True se a carga e decodificação forem bem-sucedidas
+                  False caso contrário.
         """
         if len(chunks) < 1:
             return False
@@ -340,7 +360,7 @@ class Mensagem:
             'key_serial'  : chave.serial,
             'has_crc'     : add_crc,
             'has_padding' : add_padding,
-            'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            'generated_at': datetime.now(timezone.utc).replace(microsecond=0),
             'chunks'      : [],
         }
         if add_padding:
@@ -426,7 +446,7 @@ class Mensagem:
             'issued_to'   : chave.issued_to,
             'has_crc'     : True,
             'has_padding' : False,
-            'generated_at': datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            'generated_at': datetime.now(timezone.utc).replace(microsecond=0),
             'chunks'      : [],
         }
         for chunk in chunks:
@@ -496,6 +516,21 @@ class Mensagem:
 
 
 class ParDeChaves:
+    """
+    Classe para geração e manipulação de pares de chaves RSA.
+
+    Atributos:
+        _n (int): O módulo \(n\) da chave RSA.
+        _phi_n (int): O valor de \(\phi(n)\) (função totiente de Euler).
+        _e (int): O expoente público \(e\) da chave RSA.
+        _d (int): O expoente privado \(d\) da chave RSA.
+        _size (int): O tamanho da chave em bits.
+        _issued_at (datetime): A data e hora de emissão da chave.
+        _issued_to (str): O proprietário da chave.
+        _serial (str): O número de série da chave.
+        _has_private (bool): Indica se a chave privada está presente.
+        _has_public (bool): Indica se a chave pública está presente.
+    """
     def __init__(self):
         self._n = None
         self._phi_n = None
@@ -608,7 +643,7 @@ class ParDeChaves:
         if self.has_private or self.has_public:
             return False
 
-        if bits < 5:  # Muito curto não dá certo
+        if bits < 16:  # Muito curto não dá certo
             return False
 
         self._size = bits

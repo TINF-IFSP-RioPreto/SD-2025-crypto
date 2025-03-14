@@ -1,14 +1,57 @@
+import base64
 from typing import List, Optional, Tuple
 
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
-def gerar_chave() -> bytes:
-    return Fernet.generate_key()
+def gerar_chave(password: bytes = None,
+                salt: bytes = None) -> Optional[bytes]:
+    """
+    Gera uma chave de criptografia.
+
+    Se `password` for None, gera uma chave aleatória usando Fernet.
+    Se `password` for fornecido, `salt` também deve ser fornecido para
+        derivar a chave usando PBKDF2HMAC.
+
+    Args:
+        password (bytes, opcional): A senha para derivar a chave.
+        salt (bytes, opcional): O sal para derivar a chave.
+
+    Returns:
+        Optional[bytes]: A chave gerada ou None se `password` for fornecido
+                         sem `salt`.
+    """
+    if password is None:
+        return Fernet.generate_key()
+
+    if salt is None:
+        return None
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=1_200_000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password))
+    return key
 
 
 def cifrar(chave: bytes,
            mensagem: bytes) -> Optional[bytes]:
+    """
+    Cifra uma mensagem usando a chave fornecida.
+
+    Args:
+        chave (bytes): A chave de criptografia.
+        mensagem (bytes): A mensagem a ser cifrada.
+
+    Returns:
+        Optional[bytes]: A mensagem cifrada ou None se a chave ou a mensagem
+                         forem inválidas.
+    """
     if chave is None or mensagem is None:
         return None
 
@@ -26,6 +69,20 @@ def cifrar(chave: bytes,
 def decifrar(chave: bytes,
              criptotexto: bytes,
              ttl: int = None) -> Optional[bytes]:
+    """
+    Decifra um criptotexto usando a chave fornecida.
+
+    Args:
+        chave (bytes): A chave de criptografia.
+        criptotexto (bytes): O texto cifrado a ser decifrado.
+        ttl (int, opcional): Tempo de vida em segundos para o criptotexto. Se
+                             fornecido, a decifração falhará se o criptotexto
+                             for mais antigo que o TTL.
+
+    Returns:
+        Optional[bytes]: O texto decifrado ou None se a chave ou criptotexto
+                         forem inválidos, ou se o TTL expirar.
+    """
     if chave is None or criptotexto is None:
         return None
 
@@ -41,7 +98,6 @@ def decifrar(chave: bytes,
         return f.decrypt(criptotexto, ttl=ttl)
     except InvalidToken:
         return None
-
 
 def _criar_matriz(chave, mensagem) -> Tuple[List[List[str]], int, int]:
     # Calcula o número de colunas e linhas
@@ -111,7 +167,7 @@ def decifrar_transposicao_colunar(texto_cifrado: str = None,
             mensagem_decifrada += grade[linha][coluna]
 
     return mensagem_decifrada.replace("-",
-                                      "")  # Remove os -, caso eles tenham sido adicionados para completar a grade.
+                                      "")
 
 
 def cifrar_cesar(texto: str = None,
@@ -136,4 +192,4 @@ def decifrar_cesar(texto_cifrado: str = None,
     if texto_cifrado is None or chave is None:
         return None
 
-    return cifrar_cesar(texto_cifrado, -chave)  # Decifrar é cifrar com a chave negativa
+    return cifrar_cesar(texto_cifrado, -chave)
