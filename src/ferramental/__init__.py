@@ -2,14 +2,20 @@ import base64
 import binascii
 import textwrap
 from datetime import datetime
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 
 class Ferramental:
     @staticmethod
+    def create_banners(service: str) -> Tuple[str, str]:
+        service = service.strip().upper()
+        start_banner = f'-----BEGIN {service}-----' if service else '-----BEGIN-----'
+        end_banner = f'-----END {service}-----' if service else '-----END-----'
+        return end_banner, start_banner
+
+    @staticmethod
     def armored(base_bytes: bytes = None,
-                start_banner: str = '-----BEGIN-----',
-                end_banner: str = '-----END-----',
+                service: str = '',
                 width: int = 72) -> Optional[str]:
         """
         Codifica um conjunto de bytes em base64 e a formata com banners de
@@ -17,10 +23,7 @@ class Ferramental:
 
         Args:
             base_bytes (str): O conjunto de bytes a ser formatado.
-            start_banner (str): O banner de início a ser adicionado. Padrão
-                                é '--- BEGIN ---'.
-            end_banner (str): O banner de fim a ser adicionado. Padrão é
-                              '--- END ---'.
+            service (str): Nome do serviço que comporá o banner. Padrão é vazio.
             width (int): A largura máxima de cada linha da string codificada.
                          Padrão é 72.
 
@@ -35,23 +38,20 @@ class Ferramental:
             base_bytes = base64.b64encode(base_bytes).decode('utf-8')
         except (ValueError, TypeError):
             raise ValueError('base64 encoding error')
+        end_banner, start_banner = Ferramental.create_banners(service)
         wrapped = textwrap.fill(base_bytes, width)
         return f"{start_banner}\n{wrapped}\n{end_banner}"
 
     @staticmethod
     def unarmor(base_str: str,
-                start_banner: str = '-----BEGIN-----',
-                end_banner: str = '-----END-----') -> Optional[bytes]:
+                service: str = '') -> Optional[bytes]:
         """
         Remove banners de início e fim de uma string em base64 e retorna o
          conjunto de bytes.
 
         Args:
             base_str (str): A string base codificada em base64 com banners.
-            start_banner (str): O banner de início a ser removido. Padrão é
-                                '--- BEGIN ---'.
-            end_banner (str): O banner de fim a ser removido. Padrão é
-                              '--- END ---'.
+            service (str): Nome do serviço que compõe o banner. Padrão é vazio.
 
         Returns:
             Optional[bytes]: O conjunto de bytes decodificado ou None se os
@@ -62,6 +62,7 @@ class Ferramental:
         if not isinstance(base_str, str):
             raise ValueError('base_str must be a str type')
         lines = base_str.splitlines()
+        end_banner, start_banner = Ferramental.create_banners(service)
         try:
             start_idx = lines.index(start_banner)
             end_idx = lines.index(end_banner)

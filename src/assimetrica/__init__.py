@@ -12,7 +12,6 @@ from json import JSONDecodeError
 from typing import Any, Dict, List, Optional, Self, Union
 
 import sympy
-from sympy.codegen.ast import Raise
 
 from src.ferramental import Ferramental
 
@@ -83,7 +82,7 @@ class Mensagem:
         elif isinstance(conteudo, bytes):
             self._conteudo = conteudo
         else:
-            Raise(ValueError("Tipo incorreto"))
+            raise ValueError("Tipo incorreto")
         self._size = len(self._conteudo)
 
     def __str__(self) -> str:
@@ -102,7 +101,7 @@ class Mensagem:
         elif isinstance(value, bytes):
             self._conteudo = value
         else:
-            Raise(ValueError("Tipo incorreto"))
+            raise ValueError("Tipo incorreto")
         self._size = len(self._conteudo)
 
     @property
@@ -113,6 +112,7 @@ class Mensagem:
     def as_int(self) -> int:
         return int.from_bytes(self._conteudo, byteorder='big')
 
+    # noinspection InsecureHash
     @property
     def get_hash(self):
         return hashlib.sha256(self._conteudo).hexdigest()
@@ -136,7 +136,7 @@ class Mensagem:
         elif isinstance(chunk, int):
             self._conteudo += chunk.to_bytes((chunk.bit_length() + 7) // 8, byteorder='big')
         else:
-            Raise(ValueError("Tipo incorreto"))
+            raise ValueError("Tipo incorreto")
         self._size = len(self._conteudo)
         return True
 
@@ -273,10 +273,10 @@ class Mensagem:
         if not armored:
             return cifrado
         try:
-            return Ferramental.armored(json.dumps(cifrado, cls=CustomJSONEncoder).encode('utf-8'),
-                                       '-----BEGIN MESSAGE-----',
-                                       '-----END MESSAGE-----',
-                                       72)
+            return Ferramental.armored(
+                    base_bytes=json.dumps(cifrado, cls=CustomJSONEncoder).encode('utf-8'),
+                    service="message",
+                    width=72)
         except (ValueError, JSONDecodeError, UnicodeDecodeError):
             return None
 
@@ -298,9 +298,7 @@ class Mensagem:
             return False
         if isinstance(msg, str):
             try:
-                content = Ferramental.unarmor(msg,
-                                              '-----BEGIN MESSAGE-----',
-                                              '-----END MESSAGE-----')
+                content = Ferramental.unarmor(msg, "message")
             except ValueError:
                 return False
             if content is None:
@@ -371,10 +369,9 @@ class Mensagem:
             return assinatura
         try:
             return Ferramental.armored(
-                    json.dumps(assinatura, cls=CustomJSONEncoder).encode('utf-8'),
-                    '-----BEGIN SIGNATURE-----',
-                    '-----END SIGNATURE-----',
-                    72)
+                    base_bytes=json.dumps(assinatura, cls=CustomJSONEncoder).encode('utf-8'),
+                    service="signature",
+                    width=72)
         except (ValueError, JSONDecodeError, UnicodeDecodeError):
             return None
 
@@ -405,9 +402,8 @@ class Mensagem:
             return retorno
         if isinstance(assinatura, str):
             try:
-                content = Ferramental.unarmor(assinatura,
-                                              '-----BEGIN SIGNATURE-----',
-                                              '-----END SIGNATURE-----')
+                content = Ferramental.unarmor(base_str=assinatura,
+                                              service="signature")
             except ValueError:
                 retorno['reason'] = 'unarmor_error'
                 return retorno
@@ -658,10 +654,8 @@ class ParDeChaves:
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramental.armored(
                 base_bytes=chave.encode('utf-8'),
-                start_banner='-----BEGIN PUBLIC KEY-----',
-                end_banner='-----END PUBLIC KEY-----',
-                width=72
-        )
+                service="public key",
+                width=72)
 
     def private(self, armored: bool = False) -> Union[ChavePrivada, str]:
         """
@@ -685,10 +679,8 @@ class ParDeChaves:
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramental.armored(
                 base_bytes=chave.encode('utf-8'),
-                start_banner='-----BEGIN PRIVATE KEY-----',
-                end_banner='-----END PRIVATE KEY-----',
-                width=72
-        )
+                service="private key",
+                width=72)
 
     def load_key(self,
                  chave: Union[Chave, str] = None,
@@ -726,11 +718,9 @@ class ParDeChaves:
             return False
         match tipo:
             case TipoChave.PUBLICA:
-                start_banner = '-----BEGIN PUBLIC KEY-----'
-                end_banner = '-----END PUBLIC KEY-----'
+                end_banner, start_banner = Ferramental.create_banners("public key")
             case TipoChave.PRIVADA:
-                start_banner = '-----BEGIN PRIVATE KEY-----'
-                end_banner = '-----END PRIVATE KEY-----'
+                end_banner, start_banner = Ferramental.create_banners("private key")
             case _:
                 return False
         if isinstance(chave, str):
