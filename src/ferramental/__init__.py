@@ -8,8 +8,8 @@ from typing import Optional, Union
 class Ferramental:
     @staticmethod
     def armored(base_bytes: bytes = None,
-                start_banner: str = '--- BEGIN ---',
-                end_banner: str = '--- END ---',
+                start_banner: str = '-----BEGIN-----',
+                end_banner: str = '-----END-----',
                 width: int = 72) -> Optional[str]:
         """
         Codifica um conjunto de bytes em base64 e a formata com banners de
@@ -40,8 +40,8 @@ class Ferramental:
 
     @staticmethod
     def unarmor(base_str: str,
-                start_banner: str = '--- BEGIN ---',
-                end_banner: str = '--- END ---') -> Optional[bytes]:
+                start_banner: str = '-----BEGIN-----',
+                end_banner: str = '-----END-----') -> Optional[bytes]:
         """
         Remove banners de início e fim de uma string em base64 e retorna o
          conjunto de bytes.

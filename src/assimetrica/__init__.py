@@ -274,8 +274,8 @@ class Mensagem:
             return cifrado
         try:
             return Ferramental.armored(json.dumps(cifrado, cls=CustomJSONEncoder).encode('utf-8'),
-                                       '--- INICIO DE MENSAGEM CIFRADA ---',
-                                       '--- FINAL DE MENSAGEM CIFRADA ---',
+                                       '-----BEGIN MESSAGE-----',
+                                       '-----END MESSAGE-----',
                                        72)
         except (ValueError, JSONDecodeError, UnicodeDecodeError):
             return None
@@ -299,8 +299,8 @@ class Mensagem:
         if isinstance(msg, str):
             try:
                 content = Ferramental.unarmor(msg,
-                                              '--- INICIO DE MENSAGEM CIFRADA ---',
-                                              '--- FINAL DE MENSAGEM CIFRADA ---')
+                                              '-----BEGIN MESSAGE-----',
+                                              '-----END MESSAGE-----')
             except ValueError:
                 return False
             if content is None:
@@ -372,8 +372,8 @@ class Mensagem:
         try:
             return Ferramental.armored(
                     json.dumps(assinatura, cls=CustomJSONEncoder).encode('utf-8'),
-                    '--- INICIO DE ASSINATURA ---',
-                    '--- FINAL DE ASSINATURA ---',
+                    '-----BEGIN SIGNATURE-----',
+                    '-----END SIGNATURE-----',
                     72)
         except (ValueError, JSONDecodeError, UnicodeDecodeError):
             return None
@@ -406,8 +406,8 @@ class Mensagem:
         if isinstance(assinatura, str):
             try:
                 content = Ferramental.unarmor(assinatura,
-                                              '--- INICIO DE ASSINATURA ---',
-                                              '--- FINAL DE ASSINATURA ---')
+                                              '-----BEGIN SIGNATURE-----',
+                                              '-----END SIGNATURE-----')
             except ValueError:
                 retorno['reason'] = 'unarmor_error'
                 return retorno
@@ -658,8 +658,8 @@ class ParDeChaves:
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramental.armored(
                 base_bytes=chave.encode('utf-8'),
-                start_banner='--- INICIO DE CHAVE PUBLICA ---',
-                end_banner='--- FINAL DE CHAVE PUBLICA ---',
+                start_banner='-----BEGIN PUBLIC KEY-----',
+                end_banner='-----END PUBLIC KEY-----',
                 width=72
         )
 
@@ -685,8 +685,8 @@ class ParDeChaves:
         chave = json.dumps(chave.__dict__, cls=CustomJSONEncoder)
         return Ferramental.armored(
                 base_bytes=chave.encode('utf-8'),
-                start_banner='--- INICIO DE CHAVE PRIVADA ---',
-                end_banner='--- FINAL DE CHAVE PRIVADA ---',
+                start_banner='-----BEGIN PRIVATE KEY-----',
+                end_banner='-----END PRIVATE KEY-----',
                 width=72
         )
 
@@ -726,11 +726,11 @@ class ParDeChaves:
             return False
         match tipo:
             case TipoChave.PUBLICA:
-                start_banner = '--- INICIO DE CHAVE PUBLICA ---'
-                end_banner = '--- FINAL DE CHAVE PUBLICA ---'
+                start_banner = '-----BEGIN PUBLIC KEY-----'
+                end_banner = '-----END PUBLIC KEY-----'
             case TipoChave.PRIVADA:
-                start_banner = '--- INICIO DE CHAVE PRIVADA ---'
-                end_banner = '--- FINAL DE CHAVE PRIVADA ---'
+                start_banner = '-----BEGIN PRIVATE KEY-----'
+                end_banner = '-----END PRIVATE KEY-----'
             case _:
                 return False
         if isinstance(chave, str):
