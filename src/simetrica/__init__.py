@@ -31,12 +31,11 @@ def gerar_chave(password: bytes = None,
     if salt is None:
         return None
 
-    kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=1_200_000,
-    )
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(),
+                     length=32,
+                     salt=salt,
+                     iterations=1_200_000,
+                     )
     key = base64.urlsafe_b64encode(kdf.derive(password))
     return key
 

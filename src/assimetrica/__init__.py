@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from json import JSONDecodeError
 from typing import Any, Dict, List, Optional, Self, Union
 
 import sympy
@@ -62,30 +63,6 @@ class CustomJSONEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-class Ferramentas:
-    @staticmethod
-    def melhor_e(phi_n) -> Optional[int]:
-        valores_comuns_para_e = [65537, 17, 3]
-        for e in valores_comuns_para_e:
-            if e < phi_n and math.gcd(e, phi_n) == 1:
-                return e
-        e = 65539
-        while e < phi_n:
-            if e < phi_n and math.gcd(e, phi_n) == 1:
-                return e
-            e += 2
-            while not sympy.isprime(e):
-                e += 2
-        return None
-
-    @staticmethod
-    def gerar_primo(bits: int = 16) -> int:
-        while True:
-            num = secrets.randbits(bits) | 1
-            if sympy.isprime(num):
-                return num
-
-
 class Mensagem:
     """
     Classe para manipulação de mensagens, permitindo operações como cifrar,
@@ -98,8 +75,8 @@ class Mensagem:
 
     def __init__(self, conteudo: Union[str, bytes] = None):
         if conteudo is None:
-            self._conteudo = None
-            self._size = None
+            self._conteudo = b''
+            self._size = 0
             return
         elif isinstance(conteudo, str):
             self._conteudo = conteudo.encode('utf-8')
@@ -119,7 +96,7 @@ class Mensagem:
     @conteudo.setter
     def conteudo(self, value: Union[str, bytes]):
         if value is None:
-            self._conteudo = None
+            self._conteudo = b''
         elif isinstance(value, str):
             self._conteudo = value.encode('utf-8')
         elif isinstance(value, bytes):
@@ -179,13 +156,19 @@ class Mensagem:
         Returns:
             bool: True se a carga e decodificação forem bem-sucedidas
                   False caso contrário.
+
+        Note:
+            Cada chunk é composto por:
+                - 1 byte de padding (se add_padding for True)
+                - bytes de conteúdo
+                - 1 byte de CRC (se add_crc for True)
         """
         if len(chunks) < 1:
             return False
         if has_padding and len(padding) != 1:
             return False
         content = b''
-        inicio = 1 if has_crc else 0
+        inicio = 1 if has_padding else 0
         for chunk in chunks:
             if isinstance(chunk, int):
                 data = chunk.to_bytes((chunk.bit_length() + 7) // 8, byteorder='big')
@@ -193,15 +176,15 @@ class Mensagem:
                 data = chunk
             else:
                 return False
-            if has_padding and data[-1:] != padding:
+            if has_padding and data[0] != padding:
                 return False
-            if has_crc and data[0:1] != Ferramental.crc8(data[1:]):
+            if has_crc and Ferramental.crc8(data) != b'\x00':
                 return False
-            content += data[inicio:-1] if has_padding else data[1:]
+            content += data[inicio:-1]
         self.conteudo = content
         return True
 
-    def dumps(self, size: int = 2,
+    def dumps(self, size: int = 1,
               as_bytes: bool = True,
               add_padding: bool = True,
               padding: bytes = b'\x9F',
@@ -219,24 +202,27 @@ class Mensagem:
         Returns:
             Union[List[Union[bytes, int]], None]: Uma lista de chunks serializados ou None se
             ocorrer um erro.
+
+        Note:
+            Cada chunk é composto por:
+                - 1 byte de padding (se add_padding for True)
+                - bytes de conteúdo
+                - 1 byte de CRC (se add_crc for True)
         """
-        if size < 2:
+        if size < 1:
             return None
-        actual_size = size - 1 if add_crc else 0
         if add_padding and len(padding) != 1:
             return None
-        actual_size = actual_size - (1 if add_padding else 0)
+        actual_size = size - (1 if add_crc else 0) - (1 if add_padding else 0)
         if actual_size < 1:
             return None
         chunks = list()
         for i in range(0, len(self._conteudo), actual_size):
-            content = self._conteudo[i:i + actual_size] + (padding if add_padding else b'')
+            content = padding if add_padding else b''
+            content += self._conteudo[i:i + actual_size]
             if add_crc:
-                content = Ferramental.crc8(content) + content
-            if as_bytes:
-                chunks.append(content)
-            else:
-                chunks.append(int.from_bytes(content, byteorder='big'))
+                content += Ferramental.crc8(content)
+            chunks.append(content if as_bytes else int.from_bytes(content, byteorder='big'))
         return chunks
 
     def cifrar(self,
@@ -252,7 +238,7 @@ class Mensagem:
         Args:
             chave (ChavePublica): A chave pública usada para cifrar a mensagem.
             add_padding (bool): Indica se deve adicionar padding aos chunks. Padrão é True.
-            padding (bytes): O byte de padding a ser adicionado. Padrão é b'\\x9F'.
+            padding (bytes): O byte de padding a ser adicionado. Padrão é b'\x9F'.
             add_crc (bool): Indica se deve adicionar CRC aos chunks. Padrão é True.
             size (int): O tamanho de cada chunk. Se None, será calculado automaticamente.
             armored (bool): Indica se a mensagem cifrada deve ser retornada em formato armored.
@@ -286,10 +272,13 @@ class Mensagem:
             cifrado['chunks'].append(pow(chunk, chave.e, chave.n))
         if not armored:
             return cifrado
-        return Ferramental.armored(json.dumps(cifrado, cls=CustomJSONEncoder).encode('utf-8'),
-                                   '--- INICIO DE MENSAGEM CIFRADA ---',
-                                   '--- FINAL DE MENSAGEM CIFRADA ---',
-                                   72)
+        try:
+            return Ferramental.armored(json.dumps(cifrado, cls=CustomJSONEncoder).encode('utf-8'),
+                                       '--- INICIO DE MENSAGEM CIFRADA ---',
+                                       '--- FINAL DE MENSAGEM CIFRADA ---',
+                                       72)
+        except (ValueError, JSONDecodeError, UnicodeDecodeError):
+            return None
 
     def decifrar(self,
                  chave: ChavePrivada,
@@ -299,21 +288,27 @@ class Mensagem:
 
         Args:
             chave (ChavePrivada): A chave privada usada para decifrar a mensagem.
-            msg (Union[str, Dict[str, Any]]): A mensagem cifrada, que pode ser uma string ou um
-            dicionário.
+            msg (Union[str, Dict[str, Any]]): A mensagem cifrada, que pode ser
+                                              uma string ou um dicionário.
 
         Returns:
-            bool: True se a decifração for bem-sucedida, False caso contrário.
+            bool: True se a decifração for bem-sucedida. False caso contrário.
         """
         if chave.d is None or chave.n is None:
             return False
         if isinstance(msg, str):
-            content = Ferramental.unarmor(msg,
-                                          '--- INICIO DE MENSAGEM CIFRADA ---',
-                                          '--- FINAL DE MENSAGEM CIFRADA ---')
+            try:
+                content = Ferramental.unarmor(msg,
+                                              '--- INICIO DE MENSAGEM CIFRADA ---',
+                                              '--- FINAL DE MENSAGEM CIFRADA ---')
+            except ValueError:
+                return False
             if content is None:
                 return False
-            content = json.loads(content)
+            try:
+                content = json.loads(content)
+            except (JSONDecodeError, UnicodeDecodeError):
+                return False
         elif isinstance(msg, dict):
             content = msg
         else:
@@ -322,7 +317,10 @@ class Mensagem:
             return False
         padding = b'\x9F'
         if content.get('padding', None) is not None:
-            padding = base64.b64decode(content.get('padding'))
+            try:
+                padding = base64.b64decode(content.get('padding'))
+            except (binascii.Error, ValueError):
+                return False
         chunks = content.get('chunks')
         if chunks is None:
             return False
@@ -371,10 +369,14 @@ class Mensagem:
             assinatura['chunks'].append(pow(chunk, chave.d, chave.n))
         if not armored:
             return assinatura
-        return Ferramental.armored(json.dumps(assinatura, cls=CustomJSONEncoder).encode('utf-8'),
-                                   '--- INICIO DE ASSINATURA ---',
-                                   '--- FINAL DE ASSINATURA ---',
-                                   72)
+        try:
+            return Ferramental.armored(
+                    json.dumps(assinatura, cls=CustomJSONEncoder).encode('utf-8'),
+                    '--- INICIO DE ASSINATURA ---',
+                    '--- FINAL DE ASSINATURA ---',
+                    72)
+        except (ValueError, JSONDecodeError, UnicodeDecodeError):
+            return None
 
     def verificar_assinatura(self,
                              chave: ChavePublica,
@@ -402,20 +404,32 @@ class Mensagem:
         if chave.e is None or chave.n is None:
             return retorno
         if isinstance(assinatura, str):
-            content = Ferramental.unarmor(assinatura,
-                                          '--- INICIO DE ASSINATURA ---',
-                                          '--- FINAL DE ASSINATURA ---')
-            if content is None:
+            try:
+                content = Ferramental.unarmor(assinatura,
+                                              '--- INICIO DE ASSINATURA ---',
+                                              '--- FINAL DE ASSINATURA ---')
+            except ValueError:
+                retorno['reason'] = 'unarmor_error'
                 return retorno
-            content = json.loads(content)
+            if content is None:
+                retorno['reason'] = 'empty_message'
+                return retorno
+            try:
+                content = json.loads(content)
+            except json.decoder.JSONDecodeError:
+                retorno['reason'] = 'json_error'
+                return retorno
         elif isinstance(assinatura, dict):
             content = assinatura
         else:
+            retorno['reason'] = 'empty_message'
             return retorno
         if content.get('key_serial') != chave.serial:
+            retorno['reason'] = 'key_mismatch'
             return retorno
         chunks = content.get('chunks')
         if chunks is None:
+            retorno['reason'] = 'no_chunks'
             return retorno
         decifrado = list()
         for chunk in chunks:
@@ -429,10 +443,11 @@ class Mensagem:
         retorno['issued_to'] = content.get('issued_to', None)
         if content.get('generated_at', None) is not None:
             retorno['generated_at'] = Ferramental.safe_fromisoformat(content.get('generated_at'))
-        retorno['expected'] = str(msg)
-        retorno['received'] = self.get_hash
         # https://docs.python.org/3.13/library/secrets.html#secrets.compare_digest
-        retorno['valid'] = secrets.compare_digest(self.get_hash, str(msg))
+        r = secrets.compare_digest(self.get_hash, str(msg))
+        retorno['valid'] = r
+        if not r:
+            retorno['reason'] = 'hash_mismatch'
         return retorno
 
 
@@ -502,6 +517,28 @@ class ParDeChaves:
             self.size is None or self.size == other.size,
             self.n is None or self.n == other.n
         ])
+
+    @staticmethod
+    def melhor_e(phi_n) -> Optional[int]:
+        valores_comuns_para_e = [65537, 17, 3]
+        for e in valores_comuns_para_e:
+            if e < phi_n and math.gcd(e, phi_n) == 1:
+                return e
+        e = 65539
+        while e < phi_n:
+            if e < phi_n and math.gcd(e, phi_n) == 1:
+                return e
+            e += 2
+            while not sympy.isprime(e):
+                e += 2
+        return None
+
+    @staticmethod
+    def gerar_primo(bits: int = 16) -> int:
+        while True:
+            num = secrets.randbits(bits) | 1
+            if sympy.isprime(num):
+                return num
 
     @property
     def n(self):
@@ -573,16 +610,16 @@ class ParDeChaves:
 
         self._size = bits
         if p is None or not sympy.isprime(p):
-            p = Ferramentas.gerar_primo(self.size)
+            p = ParDeChaves.gerar_primo(self.size)
         if q is None or not sympy.isprime(q):
-            q = Ferramentas.gerar_primo(self.size)
+            q = ParDeChaves.gerar_primo(self.size)
         while True:
             while p == q:
-                q = Ferramentas.gerar_primo(self.size)
+                q = ParDeChaves.gerar_primo(self.size)
 
             self._phi_n = (p - 1) * (q - 1)
 
-            self._e = Ferramentas.melhor_e(self.phi_n)
+            self._e = ParDeChaves.melhor_e(self.phi_n)
             if self.e is not None:
                 break
             q = None
