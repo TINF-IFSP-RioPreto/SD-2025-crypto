@@ -176,7 +176,7 @@ class Mensagem:
                 data = chunk
             else:
                 return False
-            if has_padding and data[0] != padding:
+            if has_padding and data[0] != int.from_bytes(padding):
                 return False
             if has_crc and Ferramental.crc8(data) != b'\x00':
                 return False
@@ -763,7 +763,7 @@ if __name__ == '__main__':
     chaves.generate(bits=512, issued_to="daniel@lobato.org")
 
     msg = Mensagem("Olá, mundo!")
-    cifrado = msg.cifrar(chaves.public(), armored=True, size=4)
+    cifrado = msg.cifrar(chaves.public(), armored=True, size=8)
     print(cifrado)
     decifrado = Mensagem()
     if decifrado.decifrar(chaves.private(), cifrado):
@@ -773,7 +773,7 @@ if __name__ == '__main__':
 
     msg = Mensagem("O rato roeu a roupa do rei de Roma")
     assinatura = msg.assinar(chaves.private(), armored=False)
-    print(json.dumps(assinatura, indent=2))
+    print(json.dumps(assinatura, cls=CustomJSONEncoder, indent=2))
 
     resultado = msg.verificar_assinatura(chaves.public(), assinatura)
     print(json.dumps(resultado, cls=CustomJSONEncoder, indent=2))
